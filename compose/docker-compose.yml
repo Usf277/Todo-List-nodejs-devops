@@ -1,0 +1,32 @@
+version: '3.8'
+
+services:
+  app:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    ports:
+      - "4000:4000" 
+    environment:
+      - PORT=4000
+      - mongoDbUrl=mongodb://mongo:27017/todolistDb
+    depends_on:
+      - mongo
+    networks:
+      - todo-net
+
+  mongo:
+    image: mongo:latest
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+    networks:
+      - todo-net
+
+networks:
+  todo-net:
+    driver: bridge
+
+volumes:
+  mongo-data:
