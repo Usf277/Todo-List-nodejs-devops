@@ -1,1 +1,8 @@
 node_modules/
+.ansible
+.vscode
+.terraform
+.terraform.lock.hcl
+tf-key.pem
+terraform.tfstate.backup
+terraform.tfstate
