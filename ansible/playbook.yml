@@ -100,8 +100,8 @@
       ignore_errors: yes 
 
     - name: Pull and Start App
+      become: true
       shell: "docker compose up -d"
       args:
         chdir: "{{ project_dir }}"
       ignore_errors: yes 
-      become_user: ubuntu

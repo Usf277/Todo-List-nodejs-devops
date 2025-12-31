@@ -1,109 +1,537 @@
+# Todo List Application - DevOps Infrastructure
 
-## Documentation
+A production-ready Node.js Todo List application with complete DevOps infrastructure including automated CI/CD pipelines, Infrastructure as Code, and configuration management.
 
-[Documentation](https://linktodocumentation)
+## Table of Contents
 
-📝 To-Do List nodeJs
+- [Overview](#overview)
+- [Architecture](#architecture)
+- [Technology Stack](#technology-stack)
+- [Project Structure](#project-structure)
+- [Prerequisites](#prerequisites)
+- [Quick Start](#quick-start)
+- [Infrastructure Components](#infrastructure-components)
+  - [Terraform Resources](#terraform-resources)
+  - [Ansible Configuration](#ansible-configuration)
+  - [CI/CD Pipeline](#cicd-pipeline)
+- [Deployment Workflow](#deployment-workflow)
+- [Configuration](#configuration)
+- [Auto-Update Mechanism](#auto-update-mechanism)
+- [Security Considerations](#security-considerations)
+- [Troubleshooting](#troubleshooting)
+- [Screenshots](#screenshots)
 
-The to-do list application is a web-based application that allows users to create and manage a list of tasks. The user interface consists of a form to add new tasks, a list of all tasks, and controls to mark tasks as complete or delete them.
+---
 
-To create the application, Node.js is used to set up the server and handle the logic of the application. Express.js is used to create the routes for the application, allowing the user to interact with the application through a web browser. EJS is used to create the views for the application, allowing the user to see the list of tasks and the form to add new tasks. CSS is used to style the application, making it visually appealing and easy to use.
+## Overview
 
-MongoDB and Mongoose are used to store the tasks in a database, allowing the user to add, delete, and update tasks as needed. Nodemon is used to monitor changes to the code and automatically restart the server, making it easy to develop and test the application.
+This project demonstrates a complete DevOps workflow for deploying a Node.js web application on AWS. The solution implements:
 
-When the user adds a new task using the form, Node.js and Express.js handle the request and store the task in the database using Mongoose. When the user views the list of tasks, EJS displays the tasks from the database in a list on the web page. When the user marks a task as complete or deletes a task, Node.js and Express.js handle the request and update the database using Mongoose.
+- **Infrastructure as Code** using Terraform to provision AWS resources
+- **Configuration Management** using Ansible to configure EC2 instances
+- **Containerization** using Docker for application packaging
+- **CI/CD Pipeline** using GitHub Actions for automated builds and deployments
+- **Auto-Update Mechanism** using cron-based image polling for continuous deployment
 
-Overall, the todo list application using Node.js, Express.js, EJS, CSS, JavaScript, MongoDB, Mongoose, and Nodemon can be a great way to create a functional and interactive web application that allows users to manage their tasks online. With the right combination of technologies, it is possible to create an application that is both functional and aesthetically pleasing, making it easy for users to manage their tasks in a convenient and efficient way.
+### Application Description
 
-Technologies Used: NodeJS, ExpressJS, EJS, CSS, JavaScript, Nodemon, MongoDB, Mongoose.
-## Demo
+The Todo List application is a web-based task management system built with Node.js, Express.js, and MongoDB. Users can create, update, categorize, and delete tasks through an intuitive web interface.
 
-Under process...
-## Authors
+---
 
-- [@AnkitVishwakarma](https://github.com/Ankit6098)
+## Architecture
 
-
-## Features
-
-- Create, Update, and Delete Tasks: Enable users to create new tasks, update existing tasks (e.g., mark as completed, edit task details), and delete tasks they no longer need.
-- Task Categories provides Implement the ability for users to categorize their tasks into different categories (e.g., work, personal, shopping) or assign labels/tags to tasks for better organization and filtering.
-- MongoDb to store your the user data
-## Run Locally
-
-Clone the project
-
-```bash
-  git clone https://github.com/Ankit6098/Todos-nodejs
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                           GitHub Repository                                 │
+│                                   │                                         │
+│                          Push to main/master                                │
+│                                   ▼                                         │
+│                          ┌──────────────────┐                               │
+│                          │  GitHub Actions  │                               │
+│                          │   CI Pipeline    │                               │
+│                          └────────┬─────────┘                               │
+│                                   │                                         │
+│                          Build & Push Image                                 │
+│                                   ▼                                         │
+│  ┌────────────────────────────────────────────────────────────────────────┐ │
+│  │                              AWS Cloud                                 │ │
+│  │                                                                        │ │
+│  │   ┌─────────────┐         ┌─────────────────────────────────────────┐  │ │
+│  │   │     ECR     │◄────────│              Docker Image               │  │ │
+│  │   │  Registry   │         │         (todo-list:latest)              │  │ │
+│  │   └──────┬──────┘         └─────────────────────────────────────────┘  │ │
+│  │          │                                                             │ │
+│  │          │ Pull Image (cron job every 1 min)                           │ │
+│  │          ▼                                                             │ │
+│  │   ┌─────────────────────┐              ┌─────────────────────┐         │ │
+│  │   │   App Server (EC2)  │              │  MongoDB Server     │         │ │
+│  │   │   ┌─────────────┐   │              │      (EC2)          │         │ │
+│  │   │   │   Docker    │   │    :27017    │   ┌─────────────┐   │         │ │
+│  │   │   │  Container  │───┼──────────────┼──►│  MongoDB    │   │         │ │
+│  │   │   │  (Port 4000)│   │              │   │   7.0       │   │         │ │
+│  │   │   └─────────────┘   │              │   └─────────────┘   │         │ │
+│  │   │   Elastic IP        │              │                     │         │ │
+│  │   └─────────────────────┘              └─────────────────────┘         │ │
+│  │          ▲                                       ▲                     │ │
+│  │          │                                       │                     │ │
+│  │   ┌──────┴───────┐                      ┌────────┴───────┐             │ │
+│  │   │  web_sg      │                      │   mongo_sg     │             │ │
+│  │   │  22,80,4000  │                      │   27017 (from  │             │ │
+│  │   │  (0.0.0.0/0) │                      │    web_sg)     │             │ │
+│  │   └──────────────┘                      └────────────────┘             │ │
+│  │                                                                        │ │
+│  └────────────────────────────────────────────────────────────────────────┘ │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-Go to the project directory and open index.html file
+---
 
-```bash
-  cd Todos-nodejs
+## Technology Stack
+
+| Category | Technology | Purpose |
+|----------|------------|---------|
+| **Application** | Node.js 18, Express.js, EJS | Web application runtime and templating |
+| **Database** | MongoDB 7.0, Mongoose | Data persistence |
+| **Containerization** | Docker, Docker Compose | Application packaging and orchestration |
+| **Infrastructure** | Terraform | AWS resource provisioning |
+| **Configuration** | Ansible | Server configuration management |
+| **CI/CD** | GitHub Actions | Automated build and deployment |
+| **Cloud Provider** | AWS (EC2, ECR, IAM, EIP) | Cloud infrastructure |
+| **OS** | Ubuntu 22.04 LTS | Server operating system |
+
+---
+
+## Project Structure
+
+```
+.
+├── app/                          # Node.js application source code
+│   ├── assets/                   # Static assets (CSS, JS)
+│   ├── config/                   # Application configuration
+│   │   └── mongoose.js           # MongoDB connection setup
+│   ├── controllers/              # Route controllers
+│   ├── models/                   # Mongoose data models
+│   ├── routes/                   # Express routes
+│   ├── views/                    # EJS templates
+│   ├── index.js                  # Application entry point
+│   └── package.json              # Node.js dependencies
+├── ansible/                      # Ansible configuration
+│   ├── inventory.ini.example     # Inventory template
+│   └── playbook.yml              # Server configuration playbook
+├── compose/                      # Docker Compose files
+│   └── docker-compose.yml        # Application orchestration
+├── docker/                       # Docker configuration
+│   └── Dockerfile                # Application container definition
+├── scripts/                      # Automation scripts
+│   ├── auto-update.sh            # Container auto-update script
+│   └── provision_configure.sh    # Full deployment automation
+├── terraform/                    # Infrastructure as Code
+│   ├── main.tf                   # Core infrastructure (EC2, SG, IAM)
+│   ├── ecr.tf                    # ECR repository
+│   ├── iam_cicd.tf               # CI/CD IAM user and policies
+│   ├── mongo.tf                  # MongoDB server infrastructure
+│   ├── variables.tf              # Input variables
+│   └── outputs.tf                # Output values
+├── .github/workflows/            # GitHub Actions
+│   └── ci.yml                    # CI/CD pipeline definition
+├── .env.example                  # Environment variables template
+└── .dockerignore                 # Docker build exclusions
 ```
 
-Install the packages
+---
+
+## Prerequisites
+
+Before deploying this project, ensure you have the following installed and configured:
+
+| Tool | Version | Purpose |
+|------|---------|---------|
+| AWS CLI | 2.x | AWS authentication and resource management |
+| Terraform | 1.0+ | Infrastructure provisioning |
+| Ansible | 2.9+ | Configuration management |
+| Docker | 20.10+ | Local container testing |
+| Git | 2.x | Version control |
+
+### AWS Requirements
+
+- AWS account with appropriate permissions
+- AWS CLI configured with credentials (`aws configure`)
+- Permissions for: EC2, ECR, IAM, VPC, EIP
+
+---
+
+## Quick Start
+
+### One-Command Deployment
+
+The fastest way to deploy the entire infrastructure:
 
 ```bash
-  npm install / npm i
+# Clone the repository
+git clone https://github.com/Usf277/Todo-List-nodejs-devops.git
+cd Todo-List-nodejs-devops
+
+# Run the automated deployment script
+./scripts/provision_configure.sh
 ```
 
-Start the Server
+This script will:
+1. Provision all AWS infrastructure with Terraform
+2. Generate the `.env` configuration file
+3. Create the Ansible inventory
+4. Configure the EC2 instance with Docker
+5. Deploy the application container
+6. Output the CI/CD credentials for GitHub Secrets
+
+### Manual Step-by-Step Deployment
+
+#### Step 1: Provision Infrastructure
 
 ```bash
-    npm start / nodemon start
+cd terraform
+terraform init
+terraform plan
+terraform apply
 ```
-## Acknowledgements
 
- - [nodemon](https://nodemon.io/)
- - [mongoDb](https://www.mongodb.com/)
- - [mongoose](https://mongoosejs.com/)
+#### Step 2: Configure Environment
 
+Create the `.env` file with outputs from Terraform:
+
+```bash
+# Get Terraform outputs
+export EIP=$(terraform output -raw public_ip)
+export MONGO_IP=$(terraform output -raw mongo_private_ip)
+export ECR_URL=$(terraform output -raw ecr_repository_url)
+
+# Create .env file
+cat <<EOF > ../.env
+PORT=4000
+mongoDbUrl=mongodb://${MONGO_IP}:27017/todolistDb
+IMAGE_NAME=${ECR_URL}:latest
+EOF
+```
+
+#### Step 3: Generate Ansible Inventory
+
+```bash
+cat <<EOF > ../ansible/inventory.ini
+[web]
+$EIP ansible_user=ubuntu ansible_ssh_private_key_file=../terraform/tf-key.pem ansible_ssh_common_args='-o StrictHostKeyChecking=no'
+EOF
+```
+
+#### Step 4: Configure Server with Ansible
+
+```bash
+cd ../ansible
+# Wait for EC2 instance to be ready
+sleep 30
+ansible-playbook -i inventory.ini playbook.yml
+```
+
+#### Step 5: Configure GitHub Secrets
+
+Add the following secrets to your GitHub repository:
+
+| Secret Name | Value Source |
+|-------------|--------------|
+| `AWS_ACCESS_KEY_ID` | `terraform output -raw cicd_access_key_id` |
+| `AWS_SECRET_ACCESS_KEY` | `terraform output -raw cicd_secret_access_key` |
+
+---
+
+## Infrastructure Components
+
+### Terraform Resources
+
+| Resource | Name | Description |
+|----------|------|-------------|
+| `aws_instance` | `app_server` | Application server (Ubuntu 22.04, t2.micro) |
+| `aws_instance` | `mongo_server` | MongoDB database server |
+| `aws_eip` | `lb` | Elastic IP for stable public addressing |
+| `aws_ecr_repository` | `app_repo` | Container image registry |
+| `aws_security_group` | `web_sg` | App server firewall (ports 22, 80, 4000) |
+| `aws_security_group` | `mongo_sg` | MongoDB firewall (port 27017 from web_sg only) |
+| `aws_iam_role` | `ec2_role` | EC2 instance role for ECR access |
+| `aws_iam_user` | `cicd_user` | CI/CD pipeline IAM user |
+| `aws_key_pair` | `kp` | SSH key pair for EC2 access |
+
+### Ansible Configuration
+
+The Ansible playbook (`ansible/playbook.yml`) performs the following tasks:
+
+1. **System Updates**: Updates apt cache and installs dependencies
+2. **Docker Installation**: Installs Docker CE and Docker Compose plugin
+3. **User Configuration**: Adds ubuntu user to docker group
+4. **Application Setup**: Creates app directory and copies configuration files
+5. **Auto-Update Setup**: Configures cron job for automatic image updates
+6. **ECR Authentication**: Logs into AWS ECR registry
+7. **Application Deployment**: Pulls and starts the application container for initial run
+
+### CI/CD Pipeline
+
+The GitHub Actions workflow (`.github/workflows/ci.yml`) triggers on:
+- Push to `main` or `master` branches
+- Pull requests to `main` or `master` branches
+
+**Pipeline Steps:**
+
+1. Checkout repository
+2. Configure AWS credentials
+3. Login to Amazon ECR
+4. Build Docker image with commit SHA tag
+5. Push image to ECR with both SHA tag and `latest` tag
+
+---
+
+## Deployment Workflow
+
+```
+Developer Push → GitHub Actions → ECR → Auto-Update Script → Running Container
+     │                │            │            │                    │
+     │                │            │            │                    │
+     ▼                ▼            ▼            ▼                    ▼
+  Code Change    Build Image   Store Image   Pull Latest      Zero-Downtime
+                 Tag: sha      Tag: latest   Every 1 min        Update
+```
+
+---
+
+## Configuration
+
+### Environment Variables
+
+| Variable | Description | Example |
+|----------|-------------|---------|
+| `PORT` | Application listening port | `4000` |
+| `mongoDbUrl` | MongoDB connection string | `mongodb://<MONGO_IP>:27017/todolistDb` |
+| `IMAGE_NAME` | Full ECR image URI | `890742564852.dkr.ecr.us-east-1.amazonaws.com/todo-list:latest` |
+
+### Terraform Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `region` | `us-east-1` | AWS region for deployment |
+| `instance_type` | `t2.micro` | EC2 instance type |
+
+---
+
+## Auto-Update Mechanism
+
+The application implements a pull-based continuous deployment model using a custom cron job and shell script.
+
+### Why This Approach?
+
+Several alternatives were evaluated before choosing this solution:
+
+| Solution | Status | Reason for Rejection |
+|----------|--------|---------------------|
+| **Watchtower** | ❌ Rejected | Project is **archived and no longer maintained** (deprecated). Using abandoned software in production is a security and reliability risk. |
+| **Portainer + Webhooks** | ❌ Rejected | Webhook functionality is only available in **Portainer Business Edition** (paid plan). Not suitable for this project's requirements. |
+| **Cron + Auto-Update Script** | ✅ Selected | Simple, reliable, zero-cost solution that meets all requirements for continuous deployment. |
+
+### Solution Details
+
+The chosen approach uses a lightweight cron-based polling mechanism:
+
+1. **Cron Job**: Runs every minute on the app server
+2. **Script Location**: `/usr/local/bin/auto-update.sh`
+3. **Log File**: `/home/ubuntu/auto-update.log`
+
+**Process:**
+```bash
+# Pull latest image from ECR
+docker compose pull
+
+# Recreate container if image changed
+docker compose up -d
+
+# Clean up unused resources
+docker system prune -af --volumes
+```
+
+### Benefits of This Approach
+
+| Benefit | Description |
+|---------|-------------|
+| **No External Dependencies** | No need for third-party tools or services |
+| **Zero Cost** | Uses native Linux cron scheduler |
+| **Full Control** | Complete visibility and customization of update logic |
+| **Reliable** | Simple mechanism with minimal failure points |
+| **Auditable** | All operations logged to `/home/ubuntu/auto-update.log` |
+| **ECR Native** | Works directly with AWS ECR authentication via instance role |
+
+This approach ensures:
+- Zero-downtime deployments (Docker Compose handles container recreation gracefully)
+- Automatic rollout of new versions within 1 minute of push
+- No need for SSH access during deployments
+- Automatic cleanup of unused Docker resources
+
+---
+
+## Security Considerations
+
+### Implemented Security Measures
+
+| Area | Implementation |
+|------|----------------|
+| **Network Isolation** | MongoDB only accessible from app server security group |
+| **IAM Least Privilege** | CI/CD user has minimal ECR and EC2 permissions |
+| **SSH Key Management** | Terraform-generated key with 0400 permissions |
+| **ECR Image Scanning** | Automatic vulnerability scanning on push |
+| **Environment Secrets** | `.env` file with 0600 permissions |
+
+---
+## Troubleshooting
+
+### Common Issues
+
+**SSH Connection Refused**
+```bash
+# Wait for instance initialization
+sleep 60
+# Verify security group allows port 22
+aws ec2 describe-security-groups --group-names todo_web_sg
+```
+
+**ECR Authentication Failed**
+```bash
+# Re-authenticate to ECR
+aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin <ECR_REGISTRY>
+```
+
+**Application Not Starting**
+```bash
+# Check container logs
+ssh -i terraform/tf-key.pem ubuntu@<EIP>
+docker logs $(docker ps -aq | head -1)
+
+# Check auto-update logs
+cat /home/ubuntu/auto-update.log
+```
+
+**MongoDB Connection Issues**
+```bash
+# Verify MongoDB is running
+ssh -i terraform/tf-key.pem ubuntu@<MONGO_IP>
+sudo systemctl status mongod
+
+# Check MongoDB binding
+grep bindIp /etc/mongod.conf
+```
+
+### Useful Commands
+
+```bash
+# View Terraform state
+terraform show
+
+# Destroy infrastructure
+terraform destroy
+
+# Re-run Ansible playbook
+ansible-playbook -i inventory.ini playbook.yml
+
+# Manual container restart
+docker compose down && docker compose up -d
+```
+
+---
+
+## Outputs
+
+After successful deployment, Terraform provides:
+
+| Output | Description |
+|--------|-------------|
+| `public_ip` | Elastic IP of the application server |
+| `mongo_private_ip` | Private IP of MongoDB server |
+| `app_instance_id` | EC2 instance ID |
+| `ecr_repository_url` | ECR repository URL |
+| `cicd_access_key_id` | CI/CD IAM user access key |
+| `cicd_secret_access_key` | CI/CD IAM user secret key (sensitive) |
+
+---
+
+## License
+
+ISC
+
+---
 
 ## Screenshots
 
-![225232515-4c100b6b-52e4-40f8-a6d4-85e30dc2f5e7](https://github.com/Ankit6098/Todos-nodejs/assets/92246613/487f548f-7ca6-4183-9443-c88c9f79c3f0)
-![225232960-da554f1f-ba4a-41f8-9856-edaebe339d76](https://github.com/Ankit6098/Todos-nodejs/assets/92246613/25515d2e-1d72-498d-8044-59a01c6b9127)
-![225238829-05433362-5b16-454c-92d5-5e536fe6912e](https://github.com/Ankit6098/Todos-nodejs/assets/92246613/316d15ca-1fe8-4581-80b1-fc316340bba6)
-![225239140-226f8eae-d8b8-4055-8a68-d85d523c2422](https://github.com/Ankit6098/Todos-nodejs/assets/92246613/44a0c418-449e-446f-8a8e-3c4e14fca8bf)
-![225239221-caf86f3d-ef17-4d18-80a6-c72123ff5444](https://github.com/Ankit6098/Todos-nodejs/assets/92246613/2ee90ab0-95d4-44f4-80ac-b17b088ac1ce)
-![225239406-98b7ba7d-df97-4d27-bb66-596a32187d87](https://github.com/Ankit6098/Todos-nodejs/assets/92246613/960ff353-1ce9-4ef8-94e4-10af09184fd2)
-![225239841-4b5d77f0-4a54-4339-b6b3-b6a1be6776b5](https://github.com/Ankit6098/Todos-nodejs/assets/92246613/f5ffc3b8-480f-4d11-9a0b-c469e3c17e8e)
+This section provides visual evidence of the complete DevOps pipeline in action.
 
+### Application Screenshots
 
-## Related
+#### Home Page
+![Home Page](https://github.com/Usf277/Todo-List-nodejs-devops/blob/master/images/part-2/Screenshot%202025-12-24%20at%204.35.38%E2%80%AFAM.png?raw=true)
 
-Here are some other projects
+#### Dashboard - Task Management
+![Dashboard](images/screenshots/app-dashboard.png)
 
-[Alarm CLock - javascript](https://github.com/Ankit6098/Todos-nodejs)\
-[IMDb Clone - javascript](https://github.com/Ankit6098/IMDb-Clone)
+#### Task Creation
+![Task Creation](images/screenshots/app-create-task.png)
 
+---
 
-## 🚀 About Me
-I'm a full stack developer...
+### Infrastructure Screenshots
 
+#### Terraform Apply Output
+![Terraform Apply](images/screenshots/terraform-apply.png)
 
-# Hi, I'm Ankit! 👋
+#### AWS EC2 Instances
+![EC2 Instances](images/screenshots/aws-ec2-instances.png)
 
-I'm a full stack developer 😎 ... Love to Develop Classic Unique fascinating and Eye Catching UI and Love to Create Projects and Building logics.
-## 🔗 Links
-[![portfolio](https://img.shields.io/badge/my_portfolio-000?style=for-the-badge&logo=ko-fi&logoColor=white)](https://ankithub.me/Resume/)
+#### AWS ECR Repository
+![ECR Repository](images/screenshots/aws-ecr-repo.png)
 
-[![linkedin](https://img.shields.io/badge/linkedin-0A66C2?style=for-the-badge&logo=linkedin&logoColorwhite=)](https://www.linkedin.com/in/ankit-vishwakarma-6531221b0/)
+#### AWS Security Groups
+![Security Groups](images/screenshots/aws-security-groups.png)
 
+---
 
-## Other Common Github Profile Sections
-🧠 I'm currently learning FullStack Developer Course from Coding Ninjas
+### Ansible Screenshots
 
-📫 How to reach me ankitvis609@gmail.com
+#### Ansible Playbook Execution
+![Ansible Playbook](images/screenshots/ansible-playbook.png)
 
+---
 
-## 🛠 Skills
-React, Java, Javascript, HTML, CSS, Nodejs, ExpressJs, Mongodb, Mongoose...
+### CI/CD Pipeline Screenshots
 
+#### GitHub Actions Workflow
+![GitHub Actions Runs](images/screenshots/github-actions-runs.png)
 
-## Feedback
+#### Workflow Run Details
+![Workflow Details](images/screenshots/github-actions-details.png)
 
-If you have any feedback, please reach out to us at ankitvis609@gmail.com
+#### GitHub Secrets Configuration
+![GitHub Secrets](images/screenshots/github-secrets.png)
 
+---
+
+### Auto-Update Mechanism Screenshots
+![Cron Job](images/screenshots/cron-job.png)
+
+#### Auto-Update Logs
+![Auto-Update Logs](images/screenshots/auto-update-logs.png)
+
+#### Docker Container Running
+![Docker Container](images/screenshots/docker-ps.png)
+
+---
+
+### End-to-End Deployment Proof
+
+#### Full Deployment Script Output
+![Full Deployment](images/screenshots/full-deployment.png)
+
+---
+
+## Original Application
+
+Based on the Todo List application by [@AnkitVishwakarma](https://github.com/Ankit6098)
