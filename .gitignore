@@ -6,3 +6,6 @@ node_modules/
 tf-key.pem
 terraform.tfstate.backup
 terraform.tfstate
+.DS_Store
+.env
+ansible/inventory.ini

@@ -1,14 +1,16 @@
 ---
-- name: Install Docker
+- name: Configure App Server
   hosts: web
   become: true
+  vars:
+    project_dir: /home/ubuntu/app
   
   tasks:
     - name: Update apt cache
       apt:
         update_cache: yes
         
-    - name: Install packages to allow apt to use a repository over HTTPS
+    - name: Install dependencies
       apt:
         name:
           - apt-transport-https
@@ -16,6 +18,7 @@
           - curl
           - software-properties-common
           - gnupg-agent
+          - awscli
           - htop
         state: present
 
@@ -35,7 +38,7 @@
           - docker-ce
           - docker-ce-cli
           - containerd.io
-          - docker-compose
+          - docker-compose-plugin
         state: present
 
     - name: Add user to docker group
@@ -49,3 +52,56 @@
         name: docker
         state: started
         enabled: yes
+
+    - name: Create app directory
+      file:
+        path: "{{ project_dir }}"
+        state: directory
+        owner: ubuntu
+        group: ubuntu
+        mode: '0755'
+
+    - name: Copy docker-compose.yml
+      copy:
+        src: ../compose/docker-compose.yml
+        dest: "{{ project_dir }}/docker-compose.yml"
+        owner: ubuntu
+        group: ubuntu
+        mode: '0644'
+
+    - name: Copy .env file
+      copy:
+        src: ../.env
+        dest: "{{ project_dir }}/.env"
+        owner: ubuntu
+        group: ubuntu
+        mode: '0600'
+    
+    - name: Copy auto-update.sh file
+      copy:
+        src: ../scripts/auto-update.sh
+        dest: "/usr/local/bin/auto-update.sh"
+        owner: ubuntu
+        group: ubuntu
+        mode: '0755'
+
+    - name: Configure cron job for auto image updates
+      cron:
+        name: "Auto update Docker image from registry"
+        user: ubuntu
+        minute: "*/1"
+        job: "/usr/local/bin/auto-update.sh >> /home/ubuntu/auto-update.log 2>&1"
+
+    - name: Login to ECR
+      shell: |
+        aws sts get-caller-identity
+        aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin 890742564852.dkr.ecr.us-east-1.amazonaws.com
+      become_user: ubuntu
+      ignore_errors: yes 
+
+    - name: Pull and Start App
+      shell: "docker compose up -d"
+      args:
+        chdir: "{{ project_dir }}"
+      ignore_errors: yes 
+      become_user: ubuntu
