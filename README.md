@@ -468,67 +468,75 @@ This section provides visual evidence of the complete DevOps pipeline in action.
 ### Application Screenshots
 
 #### Home Page
-![Home Page](https://github.com/Usf277/Todo-List-nodejs-devops/blob/master/images/part-2/Screenshot%202025-12-24%20at%204.35.38%E2%80%AFAM.png?raw=true)
+![Home Page](https://github.com/Usf277/Todo-List-nodejs-devops/blob/master/images/part-2/app-home.png?raw=true)
 
 #### Dashboard - Task Management
-![Dashboard](images/screenshots/app-dashboard.png)
+![Dashboard](https://github.com/Usf277/Todo-List-nodejs-devops/blob/master/images/part-2/Dashboard%20-%20Task%20Management.png?raw=true)
 
 #### Task Creation
-![Task Creation](images/screenshots/app-create-task.png)
+![Task Creation](https://github.com/Usf277/Todo-List-nodejs-devops/blob/master/images/part-2/Task%20Creation.png?raw=true)
 
 ---
 
 ### Infrastructure Screenshots
 
 #### Terraform Apply Output
-![Terraform Apply](images/screenshots/terraform-apply.png)
+![Terraform Apply](https://github.com/Usf277/Todo-List-nodejs-devops/blob/master/images/part-2/Terraform%20Apply%20Output.png?raw=true)
 
 #### AWS EC2 Instances
-![EC2 Instances](images/screenshots/aws-ec2-instances.png)
+![EC2 Instances](https://github.com/Usf277/Todo-List-nodejs-devops/blob/master/images/part-2/AWS%20EC2%20Instances.png?raw=true)
 
 #### AWS ECR Repository
-![ECR Repository](images/screenshots/aws-ecr-repo.png)
+![ECR Repository](https://github.com/Usf277/Todo-List-nodejs-devops/blob/master/images/part-2/AWS%20ECR%20Repository.png?raw=true)
 
 #### AWS Security Groups
-![Security Groups](images/screenshots/aws-security-groups.png)
+![Security Groups](https://github.com/Usf277/Todo-List-nodejs-devops/blob/master/images/part-2/AWS%20Security%20Groups%20app.png?raw=true)
+![Security Groups](https://github.com/Usf277/Todo-List-nodejs-devops/blob/master/images/part-2/AWS%20Security%20Groups%20mongo.png?raw=true)
 
 ---
 
 ### Ansible Screenshots
 
 #### Ansible Playbook Execution
-![Ansible Playbook](images/screenshots/ansible-playbook.png)
+![Ansible Playbook](https://github.com/Usf277/Todo-List-nodejs-devops/blob/master/images/part-2/Ansible%20Playbook%20Execution.png?raw=true)
 
 ---
 
 ### CI/CD Pipeline Screenshots
 
 #### GitHub Actions Workflow
-![GitHub Actions Runs](images/screenshots/github-actions-runs.png)
+![GitHub Actions Runs](https://github.com/Usf277/Todo-List-nodejs-devops/blob/master/images/part-2/GitHub%20Actions%20Workflow.png?raw=true)
 
 #### Workflow Run Details
-![Workflow Details](images/screenshots/github-actions-details.png)
+![Workflow Details](https://github.com/Usf277/Todo-List-nodejs-devops/blob/master/images/part-2/Workflow%20Run%20Details1.png?raw=true)
+
+![Workflow Details](https://github.com/Usf277/Todo-List-nodejs-devops/blob/master/images/part-2/Workflow%20Run%20Details2.png?raw=true)
 
 #### GitHub Secrets Configuration
-![GitHub Secrets](images/screenshots/github-secrets.png)
+![GitHub Secrets](https://github.com/Usf277/Todo-List-nodejs-devops/blob/master/images/part-2/GitHub%20Secrets%20Configuration.png?raw=true)
 
 ---
 
 ### Auto-Update Mechanism Screenshots
-![Cron Job](images/screenshots/cron-job.png)
+![Cron Job](https://github.com/Usf277/Todo-List-nodejs-devops/blob/master/images/part-2/Cron%20Job%20Configuration.png?raw=true)
 
 #### Auto-Update Logs
-![Auto-Update Logs](images/screenshots/auto-update-logs.png)
+![Auto-Update Logs](https://github.com/Usf277/Todo-List-nodejs-devops/blob/master/images/part-2/Auto-Update%20Logs.png?raw=true)
 
 #### Docker Container Running
-![Docker Container](images/screenshots/docker-ps.png)
+![Docker Container](https://github.com/Usf277/Todo-List-nodejs-devops/blob/master/images/part-2/Docker%20Container%20Running.png?raw=true)
 
 ---
 
 ### End-to-End Deployment Proof
 
 #### Full Deployment Script Output
-![Full Deployment](images/screenshots/full-deployment.png)
+![Full Deployment](https://github.com/Usf277/Todo-List-nodejs-devops/blob/master/images/part-2/Full%20Deployment%20Script%20Output%201.png?raw=true)
+
+![Full Deployment](https://github.com/Usf277/Todo-List-nodejs-devops/blob/master/images/part-2/Full%20Deployment%20Script%20Output%202.png?raw=true)
+
+![Full Deployment](https://github.com/Usf277/Todo-List-nodejs-devops/blob/master/images/part-2/Full%20Deployment%20Script%20Output%203.png?raw=true)
+
 
 ---
 
