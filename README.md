@@ -18,7 +18,6 @@ A production-ready Node.js Todo List application with complete DevOps infrastruc
 - [Configuration](#configuration)
 - [Auto-Update Mechanism](#auto-update-mechanism)
 - [Security Considerations](#security-considerations)
-- [Troubleshooting](#troubleshooting)
 - [Screenshots](#screenshots)
 
 ---
@@ -382,61 +381,6 @@ This approach ensures:
 | **SSH Key Management** | Terraform-generated key with 0400 permissions |
 | **ECR Image Scanning** | Automatic vulnerability scanning on push |
 | **Environment Secrets** | `.env` file with 0600 permissions |
-
----
-## Troubleshooting
-
-### Common Issues
-
-**SSH Connection Refused**
-```bash
-# Wait for instance initialization
-sleep 60
-# Verify security group allows port 22
-aws ec2 describe-security-groups --group-names todo_web_sg
-```
-
-**ECR Authentication Failed**
-```bash
-# Re-authenticate to ECR
-aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin <ECR_REGISTRY>
-```
-
-**Application Not Starting**
-```bash
-# Check container logs
-ssh -i terraform/tf-key.pem ubuntu@<EIP>
-docker logs $(docker ps -aq | head -1)
-
-# Check auto-update logs
-cat /home/ubuntu/auto-update.log
-```
-
-**MongoDB Connection Issues**
-```bash
-# Verify MongoDB is running
-ssh -i terraform/tf-key.pem ubuntu@<MONGO_IP>
-sudo systemctl status mongod
-
-# Check MongoDB binding
-grep bindIp /etc/mongod.conf
-```
-
-### Useful Commands
-
-```bash
-# View Terraform state
-terraform show
-
-# Destroy infrastructure
-terraform destroy
-
-# Re-run Ansible playbook
-ansible-playbook -i inventory.ini playbook.yml
-
-# Manual container restart
-docker compose down && docker compose up -d
-```
 
 ---
 
