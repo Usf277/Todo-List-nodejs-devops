@@ -5,7 +5,20 @@ echo "------------------------------------------------------------------"
 echo "🚀 Starting Deployment..."
 echo "------------------------------------------------------------------"
 
+# Step 0: Bootstrap remote state backend (S3 + DynamoDB)
+# This must run once before the main infra — it creates the S3 bucket
+# and DynamoDB table that terraform/backend.tf references.
+# Safe to re-run: Terraform is idempotent.
+echo "Step 0: Bootstrapping Remote State Backend (S3 + DynamoDB)..."
+cd terraform/bootstrap
+terraform init
+terraform apply -auto-approve
+cd ../..
+
 # Step 1: Terraform Provisioning
+# terraform init connects to the S3 backend configured in backend.tf.
+# On first run from a local state, add -migrate-state to move local
+# state into S3: terraform init -migrate-state
 echo "Step 1: Provisioning Infrastructure with Terraform..."
 cd terraform
 terraform init
