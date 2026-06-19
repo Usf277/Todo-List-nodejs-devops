@@ -12,6 +12,7 @@ A production-ready Node.js Todo List application with complete DevOps infrastruc
 - [Quick Start](#quick-start)
 - [Infrastructure Components](#infrastructure-components)
   - [Terraform Resources](#terraform-resources)
+  - [Remote State Management](#remote-state-management)
   - [Ansible Configuration](#ansible-configuration)
   - [CI/CD Pipeline](#cicd-pipeline)
 - [Deployment Workflow](#deployment-workflow)
@@ -84,6 +85,59 @@ The Todo List application is a web-based task management system built with Node.
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
+### Updated Architecture — Custom VPC with Subnet Isolation
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                           GitHub Repository                                 │
+│                                   │                                         │
+│                          Push to main/master                                │
+│                                   ▼                                         │
+│                    ┌──────────────────────────┐                             │
+│                    │      GitHub Actions       │                            │
+│                    │  1. Build Docker image    │                            │
+│                    │  2. Smoke test (HTTP 4000)│                            │
+│                    │  3. Push to ECR           │                            │
+│                    └────────────┬─────────────┘                             │
+│                                 │                                           │
+│  ┌──────────────────────────────▼──────────────────────────────────────┐    │
+│  │                      AWS Cloud (us-east-1)                          │    │
+│  │                                                                     │    │
+│  │   ┌─────────────┐   Build & Push                                    │    │
+│  │   │  S3 Bucket  │◄──────────────── Terraform Remote State           │    │
+│  │   │  (tfstate)  │   DynamoDB Lock                                   │    │
+│  │   └─────────────┘                                                   │    │
+│  │                                                                     │    │
+│  │   ┌─────────────┐                                                   │    │
+│  │   │     ECR     │◄── CI pushes image                                │    │
+│  │   │  Registry   │                                                   │    │
+│  │   └──────┬──────┘                                                   │    │
+│  │          │                                                          │    │
+│  │   ┌──────▼──────────────────────────────────────────────────────┐   │    │
+│  │   │              Custom VPC  (10.0.0.0/16)                      │   │    │
+│  │   │                                                             │   │    │
+│  │   │  ┌──────────────────────────────────────────────────────┐   │   │    │
+│  │   │  │           Public Subnet  (10.0.1.0/24)               │   │   │    │
+│  │   │  │                                                      │   │   │    │
+│  │   │  │  ┌─────────────────────┐  ┌──────────────────────┐   │   │   │    │
+│  │   │  │  │  App Server (EC2)   │  │  MongoDB Server (EC2)│   │   │   │    │
+│  │   │  │  │  ┌───────────────┐  │  │  ┌────────────────┐  │   │   │   │    │
+│  │   │  │  │  │Docker :4000   │──┼──┼─►│  MongoDB :27017│  │   │   │   │    │
+│  │   │  │  │  └───────────────┘  │  │  └────────────────┘  │   │   │   │    │
+│  │   │  │  │  Elastic IP         │  │  SG: 27017 from      │   │   │   │    │
+│  │   │  │  │  SG: 22,80,4000     │  │  web_sg only         │   │   │   │    │
+│  │   │  │  └─────────────────────┘  └──────────────────────┘   │   │   │    │
+│  │   │  └──────────────────────────────────────────────────────┘   │   │    │
+│  │   │                                                             │   │    │
+│  │   │  ┌──────────────────────────────────────────────────────┐   │   │    │
+│  │   │  │  Private Subnet (10.0.2.0/24) — NAT Gateway target   │   │   │    │
+│  │   │  │  MongoDB moves here once a NAT Gateway is added      │   │   │    │
+│  │   │  └──────────────────────────────────────────────────────┘   │   │    │
+│  │   └─────────────────────────────────────────────────────────────┘   │    │
+│  └─────────────────────────────────────────────────────────────────────┘    │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
 ---
 
 ## Technology Stack
@@ -96,7 +150,7 @@ The Todo List application is a web-based task management system built with Node.
 | **Infrastructure** | Terraform | AWS resource provisioning |
 | **Configuration** | Ansible | Server configuration management |
 | **CI/CD** | GitHub Actions | Automated build and deployment |
-| **Cloud Provider** | AWS (EC2, ECR, IAM, EIP) | Cloud infrastructure |
+| **Cloud Provider** | AWS (EC2, ECR, IAM, EIP, VPC, S3, DynamoDB) | Cloud infrastructure |
 | **OS** | Ubuntu 22.04 LTS | Server operating system |
 
 ---
@@ -126,6 +180,10 @@ The Todo List application is a web-based task management system built with Node.
 │   ├── auto-update.sh            # Container auto-update script
 │   └── provision_configure.sh    # Full deployment automation
 ├── terraform/                    # Infrastructure as Code
+│   ├── bootstrap/                # One-time state backend setup
+│   │   └── main.tf               # S3 bucket + DynamoDB lock table
+│   ├── backend.tf                # S3 remote state configuration
+│   ├── vpc.tf                    # VPC, subnets, IGW, route tables
 │   ├── main.tf                   # Core infrastructure (EC2, SG, IAM)
 │   ├── ecr.tf                    # ECR repository
 │   ├── iam_cicd.tf               # CI/CD IAM user and policies
@@ -176,12 +234,14 @@ cd Todo-List-nodejs-devops
 ```
 
 This script will:
-1. Provision all AWS infrastructure with Terraform
-2. Generate the `.env` configuration file
-3. Create the Ansible inventory
-4. Configure the EC2 instance with Docker
-5. Deploy the application container
-6. Output the CI/CD credentials for GitHub Secrets
+
+1. Bootstrap the S3 remote state backend and DynamoDB lock table
+2. Provision all AWS infrastructure with Terraform (stored in S3)
+3. Generate the `.env` configuration file
+4. Create the Ansible inventory
+5. Configure the EC2 instance with Docker
+6. Deploy the application container
+7. Output the CI/CD credentials for GitHub Secrets
 
 ### Manual Step-by-Step Deployment
 
@@ -251,11 +311,42 @@ Add the following secrets to your GitHub repository:
 | `aws_instance` | `mongo_server` | MongoDB database server |
 | `aws_eip` | `lb` | Elastic IP for stable public addressing |
 | `aws_ecr_repository` | `app_repo` | Container image registry |
-| `aws_security_group` | `web_sg` | App server firewall (ports 22, 80, 4000) |
-| `aws_security_group` | `mongo_sg` | MongoDB firewall (port 27017 from web_sg only) |
+| `aws_security_group` | `web_sg` | App server firewall (ports 22, 80, 4000) — VPC-scoped |
+| `aws_security_group` | `mongo_sg` | MongoDB firewall (port 27017 from web_sg only) — VPC-scoped |
 | `aws_iam_role` | `ec2_role` | EC2 instance role for ECR access |
 | `aws_iam_user` | `cicd_user` | CI/CD pipeline IAM user |
 | `aws_key_pair` | `kp` | SSH key pair for EC2 access |
+| `aws_vpc` | `main` | Custom VPC (10.0.0.0/16) replacing the default VPC |
+| `aws_subnet` | `public` | Public subnet (10.0.1.0/24) for app and MongoDB servers |
+| `aws_subnet` | `private` | Private subnet (10.0.2.0/24) reserved for MongoDB with NAT Gateway |
+| `aws_internet_gateway` | `igw` | Internet gateway attached to the VPC |
+| `aws_route_table` | `public` | Route table sending 0.0.0.0/0 traffic through the IGW |
+
+### Remote State Management
+
+Terraform state is stored remotely in S3 with DynamoDB locking instead of a local `terraform.tfstate` file. This prevents state corruption from concurrent applies and keeps secrets (IAM keys, IPs) out of the git repository.
+
+**Bootstrap (run once before first `terraform apply`):**
+
+```bash
+cd terraform/bootstrap
+terraform init
+terraform apply
+```
+
+This creates:
+
+- `aws_s3_bucket` — `todo-list-tfstate-890742564852` with versioning and AES-256 encryption enabled, all public access blocked
+- `aws_dynamodb_table` — `todo-list-tfstate-lock` with a `LockID` hash key (pay-per-request billing)
+
+**Migrating from local state (existing projects only):**
+
+```bash
+cd terraform
+terraform init -migrate-state
+```
+
+This copies the local `terraform.tfstate` into S3 and removes the local file.
 
 ### Ansible Configuration
 
@@ -272,6 +363,7 @@ The Ansible playbook (`ansible/playbook.yml`) performs the following tasks:
 ### CI/CD Pipeline
 
 The GitHub Actions workflow (`.github/workflows/ci.yml`) triggers on:
+
 - Push to `main` or `master` branches
 - Pull requests to `main` or `master` branches
 
@@ -281,7 +373,8 @@ The GitHub Actions workflow (`.github/workflows/ci.yml`) triggers on:
 2. Configure AWS credentials
 3. Login to Amazon ECR
 4. Build Docker image with commit SHA tag
-5. Push image to ECR with both SHA tag and `latest` tag
+5. **Smoke test** — run the built image, wait 8 seconds, then hit `GET /` and assert an HTTP response is returned. Fails the pipeline before the push if the container crashes on startup or the server never binds to port 4000.
+6. Push image to ECR with both SHA tag and `latest` tag (only reached if smoke test passes)
 
 ---
 
@@ -340,6 +433,7 @@ The chosen approach uses a lightweight cron-based polling mechanism:
 3. **Log File**: `/home/ubuntu/auto-update.log`
 
 **Process:**
+
 ```bash
 # Pull latest image from ECR
 docker compose pull
@@ -363,6 +457,7 @@ docker system prune -af --volumes
 | **ECR Native** | Works directly with AWS ECR authentication via instance role |
 
 This approach ensures:
+
 - Zero-downtime deployments (Docker Compose handles container recreation gracefully)
 - Automatic rollout of new versions within 1 minute of push
 - No need for SSH access during deployments
@@ -376,11 +471,15 @@ This approach ensures:
 
 | Area | Implementation |
 |------|----------------|
-| **Network Isolation** | MongoDB only accessible from app server security group |
+| **Custom VPC** | All resources isolated inside a dedicated VPC (10.0.0.0/16) instead of the shared default VPC |
+| **Network Isolation** | MongoDB security group only allows port 27017 from the app server's security group — no public MongoDB exposure |
+| **Subnet Separation** | Public subnet for the app server; private subnet defined and ready for MongoDB once a NAT Gateway is added |
+| **Remote State Security** | Terraform state in S3 with AES-256 encryption, versioning, and all public access blocked — secrets never stored in git |
 | **IAM Least Privilege** | CI/CD user has minimal ECR and EC2 permissions |
-| **SSH Key Management** | Terraform-generated key with 0400 permissions |
-| **ECR Image Scanning** | Automatic vulnerability scanning on push |
-| **Environment Secrets** | `.env` file with 0600 permissions |
+| **SSH Key Management** | Terraform-generated RSA-4096 key with 0400 permissions |
+| **ECR Image Scanning** | Automatic vulnerability scanning on every push |
+| **Environment Secrets** | `.env` file with 0600 permissions, git-ignored |
+| **CI Smoke Test** | Broken images are rejected before being pushed to ECR |
 
 ---
 
@@ -412,12 +511,15 @@ This section provides visual evidence of the complete DevOps pipeline in action.
 ### Application Screenshots
 
 #### Home Page
+
 ![Home Page](https://github.com/Usf277/Todo-List-nodejs-devops/blob/master/images/part-2/app-home.png?raw=true)
 
 #### Dashboard - Task Management
+
 ![Dashboard](https://github.com/Usf277/Todo-List-nodejs-devops/blob/master/images/part-2/Dashboard%20-%20Task%20Management.png?raw=true)
 
 #### Task Creation
+
 ![Task Creation](https://github.com/Usf277/Todo-List-nodejs-devops/blob/master/images/part-2/Task%20Creation.png?raw=true)
 
 ---
@@ -425,15 +527,19 @@ This section provides visual evidence of the complete DevOps pipeline in action.
 ### Infrastructure Screenshots
 
 #### Terraform Apply Output
+
 ![Terraform Apply](https://github.com/Usf277/Todo-List-nodejs-devops/blob/master/images/part-2/Terraform%20Apply%20Output.png?raw=true)
 
 #### AWS EC2 Instances
+
 ![EC2 Instances](https://github.com/Usf277/Todo-List-nodejs-devops/blob/master/images/part-2/AWS%20EC2%20Instances.png?raw=true)
 
 #### AWS ECR Repository
+
 ![ECR Repository](https://github.com/Usf277/Todo-List-nodejs-devops/blob/master/images/part-2/AWS%20ECR%20Repository.png?raw=true)
 
 #### AWS Security Groups
+
 ![Security Groups](https://github.com/Usf277/Todo-List-nodejs-devops/blob/master/images/part-2/AWS%20Security%20Groups%20app.png?raw=true)
 ![Security Groups](https://github.com/Usf277/Todo-List-nodejs-devops/blob/master/images/part-2/AWS%20Security%20Groups%20mongo.png?raw=true)
 
@@ -442,6 +548,7 @@ This section provides visual evidence of the complete DevOps pipeline in action.
 ### Ansible Screenshots
 
 #### Ansible Playbook Execution
+
 ![Ansible Playbook](https://github.com/Usf277/Todo-List-nodejs-devops/blob/master/images/part-2/Ansible%20Playbook%20Execution.png?raw=true)
 
 ---
@@ -449,25 +556,31 @@ This section provides visual evidence of the complete DevOps pipeline in action.
 ### CI/CD Pipeline Screenshots
 
 #### GitHub Actions Workflow
+
 ![GitHub Actions Runs](https://github.com/Usf277/Todo-List-nodejs-devops/blob/master/images/part-2/GitHub%20Actions%20Workflow.png?raw=true)
 
 #### Workflow Run Details
+
 ![Workflow Details](https://github.com/Usf277/Todo-List-nodejs-devops/blob/master/images/part-2/Workflow%20Run%20Details1.png?raw=true)
 
 ![Workflow Details](https://github.com/Usf277/Todo-List-nodejs-devops/blob/master/images/part-2/Workflow%20Run%20Details2.png?raw=true)
 
 #### GitHub Secrets Configuration
+
 ![GitHub Secrets](https://github.com/Usf277/Todo-List-nodejs-devops/blob/master/images/part-2/GitHub%20Secrets%20Configuration.png?raw=true)
 
 ---
 
 ### Auto-Update Mechanism Screenshots
+
 ![Cron Job](https://github.com/Usf277/Todo-List-nodejs-devops/blob/master/images/part-2/Cron%20Job%20Configuration.png?raw=true)
 
 #### Auto-Update Logs
+
 ![Auto-Update Logs](https://github.com/Usf277/Todo-List-nodejs-devops/blob/master/images/part-2/Auto-Update%20Logs.png?raw=true)
 
 #### Docker Container Running
+
 ![Docker Container](https://github.com/Usf277/Todo-List-nodejs-devops/blob/master/images/part-2/Docker%20Container%20Running.png?raw=true)
 
 ---
@@ -475,12 +588,12 @@ This section provides visual evidence of the complete DevOps pipeline in action.
 ### End-to-End Deployment Proof
 
 #### Full Deployment Script Output
+
 ![Full Deployment](https://github.com/Usf277/Todo-List-nodejs-devops/blob/master/images/part-2/Full%20Deployment%20Script%20Output%201.png?raw=true)
 
 ![Full Deployment](https://github.com/Usf277/Todo-List-nodejs-devops/blob/master/images/part-2/Full%20Deployment%20Script%20Output%202.png?raw=true)
 
 ![Full Deployment](https://github.com/Usf277/Todo-List-nodejs-devops/blob/master/images/part-2/Full%20Deployment%20Script%20Output%203.png?raw=true)
-
 
 ---
 
