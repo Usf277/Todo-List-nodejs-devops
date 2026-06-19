@@ -40,11 +40,41 @@ jobs:
         ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
       run: |
         IMAGE_TAG=$(echo ${{ github.sha }} | cut -c1-7)
-        
+
         docker build -f docker/Dockerfile \
         -t $ECR_REPOSITORY:$IMAGE_TAG \
         -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG \
         -t $ECR_REGISTRY/$ECR_REPOSITORY:latest .
 
         docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
-        docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest  
+        docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+
+    - name: Smoke test — verify container starts and serves HTTP
+      env:
+        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+      run: |
+        IMAGE_TAG=$(echo ${{ github.sha }} | cut -c1-7)
+
+        docker run -d --name smoke-test \
+          -p 4000:4000 \
+          -e PORT=4000 \
+          -e mongoDbUrl=mongodb://127.0.0.1:27017/test \
+          $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+
+        echo "Waiting for container to start..."
+        sleep 8
+
+        if ! docker inspect smoke-test --format='{{.State.Status}}' | grep -q running; then
+          echo "Container crashed on startup:"
+          docker logs smoke-test
+          exit 1
+        fi
+
+        HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 http://localhost:4000 || echo "000")
+        docker stop smoke-test && docker rm smoke-test
+
+        if [ "$HTTP_CODE" = "000" ]; then
+          echo "Smoke test FAILED: no HTTP response on port 4000"
+          exit 1
+        fi
+        echo "Smoke test PASSED (HTTP $HTTP_CODE)"
