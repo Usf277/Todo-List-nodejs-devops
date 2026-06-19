@@ -21,6 +21,7 @@ resource "local_file" "ssh_key" {
 resource "aws_security_group" "web_sg" {
   name        = "todo_web_sg"
   description = "Allow SSH and HTTP"
+  vpc_id      = aws_vpc.main.id
 
   ingress {
     from_port   = 22
@@ -79,11 +80,12 @@ resource "aws_iam_instance_profile" "ec2_profile" {
 }
 
 resource "aws_instance" "app_server" {
-  ami                  = data.aws_ami.ubuntu.id
-  instance_type        = var.instance_type
-  key_name             = aws_key_pair.kp.key_name
-  security_groups      = [aws_security_group.web_sg.name]
-  iam_instance_profile = aws_iam_instance_profile.ec2_profile.name
+  ami                    = data.aws_ami.ubuntu.id
+  instance_type          = var.instance_type
+  key_name               = aws_key_pair.kp.key_name
+  subnet_id              = aws_subnet.public.id
+  vpc_security_group_ids = [aws_security_group.web_sg.id]
+  iam_instance_profile   = aws_iam_instance_profile.ec2_profile.name
 
   tags = {
     Name = "TodoListApp"

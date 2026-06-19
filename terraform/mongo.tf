@@ -1,8 +1,9 @@
 resource "aws_instance" "mongo_server" {
-  ami             = data.aws_ami.ubuntu.id
-  instance_type   = var.instance_type # Reuse t2.micro
-  key_name        = aws_key_pair.kp.key_name
-  security_groups = [aws_security_group.mongo_sg.name]
+  ami                    = data.aws_ami.ubuntu.id
+  instance_type          = var.instance_type
+  key_name               = aws_key_pair.kp.key_name
+  subnet_id              = aws_subnet.public.id
+  vpc_security_group_ids = [aws_security_group.mongo_sg.id]
 
   user_data = <<-EOF
               #!/bin/bash
@@ -28,6 +29,7 @@ resource "aws_instance" "mongo_server" {
 resource "aws_security_group" "mongo_sg" {
   name        = "todo_mongo_sg"
   description = "Allow Mongo Port from App Server"
+  vpc_id      = aws_vpc.main.id
 
   ingress {
     from_port       = 27017
