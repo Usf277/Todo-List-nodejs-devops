@@ -16,10 +16,13 @@ env:
   AWS_REGION: us-east-1
   ECR_REPOSITORY: todo-list
   ECR_REGISTRY: 890742564852.dkr.ecr.us-east-1.amazonaws.com
+  CLUSTER_NAME: todo-list-eks
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    outputs:
+      image-tag: ${{ steps.image-tag.outputs.tag }}
 
     steps:
     - uses: actions/checkout@v3
@@ -35,16 +38,19 @@ jobs:
       id: login-ecr
       uses: aws-actions/amazon-ecr-login@v1
 
+    - name: Set image tag
+      id: image-tag
+      run: echo "tag=$(echo ${{ github.sha }} | cut -c1-7)" >> "$GITHUB_OUTPUT"
+
     - name: Build, tag, and push image to Amazon ECR
       env:
         ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        IMAGE_TAG: ${{ steps.image-tag.outputs.tag }}
       run: |
-        IMAGE_TAG=$(echo ${{ github.sha }} | cut -c1-7)
-
         docker build -f docker/Dockerfile \
-        -t $ECR_REPOSITORY:$IMAGE_TAG \
-        -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG \
-        -t $ECR_REGISTRY/$ECR_REPOSITORY:latest .
+          -t $ECR_REPOSITORY:$IMAGE_TAG \
+          -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG \
+          -t $ECR_REGISTRY/$ECR_REPOSITORY:latest .
 
         docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
         docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
@@ -52,9 +58,8 @@ jobs:
     - name: Smoke test — verify container starts and serves HTTP
       env:
         ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        IMAGE_TAG: ${{ steps.image-tag.outputs.tag }}
       run: |
-        IMAGE_TAG=$(echo ${{ github.sha }} | cut -c1-7)
-
         docker run -d --name smoke-test \
           -p 4000:4000 \
           -e PORT=4000 \
@@ -78,3 +83,51 @@ jobs:
           exit 1
         fi
         echo "Smoke test PASSED (HTTP $HTTP_CODE)"
+
+  deploy:
+    needs: build
+    if: github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v1
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Install Helm
+      uses: azure/setup-helm@v3
+      with:
+        version: v3.14.0
+
+    - name: Update kubeconfig
+      run: aws eks update-kubeconfig --region ${{ env.AWS_REGION }} --name ${{ env.CLUSTER_NAME }}
+
+    - name: Install NGINX Ingress Controller (idempotent)
+      run: |
+        helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
+        helm repo update
+        helm upgrade --install nginx-ingress ingress-nginx/ingress-nginx \
+          --namespace ingress-nginx \
+          --create-namespace \
+          --set controller.replicaCount=1 \
+          --set controller.resources.requests.cpu=50m \
+          --set controller.resources.requests.memory=90Mi \
+          --wait --timeout 5m
+
+    - name: Deploy app via Helm
+      run: |
+        helm upgrade --install todo-app ./helm/todo-app \
+          --namespace default \
+          --set app.image.tag=${{ needs.build.outputs.image-tag }} \
+          --wait --timeout 5m
+
+    - name: Show ingress address
+      run: |
+        echo "Waiting for ingress LoadBalancer IP/hostname..."
+        kubectl get ingress todo-app -n default -o wide || true
+        kubectl get svc -n ingress-nginx nginx-ingress-ingress-nginx-controller -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' || true

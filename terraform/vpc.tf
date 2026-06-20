@@ -8,29 +8,30 @@ resource "aws_vpc" "main" {
   }
 }
 
-# Public subnet — app server lives here (needs outbound internet for ECR pulls)
-resource "aws_subnet" "public" {
+# EKS requires subnets in at least 2 AZs for the control plane
+resource "aws_subnet" "public_a" {
   vpc_id                  = aws_vpc.main.id
   cidr_block              = "10.0.1.0/24"
   map_public_ip_on_launch = true
   availability_zone       = "${var.region}a"
 
   tags = {
-    Name = "todo-list-public"
+    Name                                        = "todo-list-public-a"
+    "kubernetes.io/cluster/${var.cluster_name}" = "owned"
+    "kubernetes.io/role/elb"                    = "1"
   }
 }
 
-# Private subnet — intended for MongoDB in production.
-# Requires a NAT Gateway for outbound internet access during user_data setup.
-# Move mongo_server here once a NAT Gateway is added to keep the DB off the
-# public internet entirely.
-resource "aws_subnet" "private" {
-  vpc_id            = aws_vpc.main.id
-  cidr_block        = "10.0.2.0/24"
-  availability_zone = "${var.region}a"
+resource "aws_subnet" "public_b" {
+  vpc_id                  = aws_vpc.main.id
+  cidr_block              = "10.0.2.0/24"
+  map_public_ip_on_launch = true
+  availability_zone       = "${var.region}b"
 
   tags = {
-    Name = "todo-list-private"
+    Name                                        = "todo-list-public-b"
+    "kubernetes.io/cluster/${var.cluster_name}" = "owned"
+    "kubernetes.io/role/elb"                    = "1"
   }
 }
 
@@ -55,7 +56,12 @@ resource "aws_route_table" "public" {
   }
 }
 
-resource "aws_route_table_association" "public" {
-  subnet_id      = aws_subnet.public.id
+resource "aws_route_table_association" "public_a" {
+  subnet_id      = aws_subnet.public_a.id
+  route_table_id = aws_route_table.public.id
+}
+
+resource "aws_route_table_association" "public_b" {
+  subnet_id      = aws_subnet.public_b.id
   route_table_id = aws_route_table.public.id
 }

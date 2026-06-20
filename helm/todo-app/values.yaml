@@ -1,0 +1,47 @@
+nameOverride: ""
+fullnameOverride: ""
+
+app:
+  image:
+    repository: 890742564852.dkr.ecr.us-east-1.amazonaws.com/todo-list
+    tag: latest
+    pullPolicy: Always
+  replicaCount: 1
+  port: 4000
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 300m
+      memory: 256Mi
+
+mongodb:
+  image:
+    repository: mongo
+    tag: "7.0"
+  port: 27017
+  storage: 1Gi
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 300m
+      memory: 256Mi
+
+ingress:
+  enabled: true
+  className: nginx
+  host: todo.example.com
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "0"
+
+config:
+  port: "4000"
+  nodeEnv: production
+
+# mongoDbUrl points to the in-cluster MongoDB service by default.
+# Override with --set secrets.mongoDbUrl=<uri> to use an external MongoDB.
+secrets:
+  mongoDbUrl: "mongodb://todo-app-mongodb:27017/todolist"

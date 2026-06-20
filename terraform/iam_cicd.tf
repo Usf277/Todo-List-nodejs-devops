@@ -39,9 +39,12 @@ resource "aws_iam_user_policy" "cicd_policy" {
         Resource = "*" # Restrict to specific ARN if strict security needed, but * is standard for dev setups
       },
       {
-        Sid      = "EC2Describe"
-        Effect   = "Allow"
-        Action   = "ec2:DescribeInstances"
+        Sid    = "EKS"
+        Effect = "Allow"
+        Action = [
+          "eks:DescribeCluster",
+          "eks:ListClusters"
+        ]
         Resource = "*"
       }
     ]

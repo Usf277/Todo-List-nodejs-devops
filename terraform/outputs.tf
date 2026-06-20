@@ -1,13 +1,13 @@
-output "public_ip" {
-  value = aws_eip.lb.public_ip
+output "cluster_name" {
+  value = aws_eks_cluster.main.name
 }
 
-output "mongo_private_ip" {
-  value = aws_instance.mongo_server.private_ip
+output "cluster_endpoint" {
+  value = aws_eks_cluster.main.endpoint
 }
 
-output "app_instance_id" {
-  value = aws_instance.app_server.id
+output "kubeconfig_command" {
+  value = "aws eks update-kubeconfig --region ${var.region} --name ${aws_eks_cluster.main.name}"
 }
 
 output "ecr_repository_url" {

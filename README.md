@@ -19,6 +19,14 @@ A production-ready Node.js Todo List application with complete DevOps infrastruc
 - [Configuration](#configuration)
 - [Auto-Update Mechanism](#auto-update-mechanism)
 - [Security Considerations](#security-considerations)
+- [Part 3: Migration to Kubernetes (EKS + Helm)](#part-3-migration-to-kubernetes-eks--helm)
+  - [Architecture — EKS + Helm](#architecture--eks--helm)
+  - [What Changed](#what-changed)
+  - [Helm Chart](#helm-chart)
+  - [CI/CD Pipeline Updates](#cicd-pipeline-updates)
+  - [Deployment](#deployment)
+  - [Destroy Everything](#destroy-everything)
+  - [Cost](#cost-approximate-us-east-1)
 - [Screenshots](#screenshots)
 
 ---
@@ -146,12 +154,15 @@ The Todo List application is a web-based task management system built with Node.
 |----------|------------|---------|
 | **Application** | Node.js 18, Express.js, EJS | Web application runtime and templating |
 | **Database** | MongoDB 7.0, Mongoose | Data persistence |
-| **Containerization** | Docker, Docker Compose | Application packaging and orchestration |
+| **Containerization** | Docker, Docker Compose | Application packaging and local dev |
+| **Container Orchestration** | Kubernetes (EKS 1.30) | Production container management (Part 3) |
+| **Package Management (K8s)** | Helm 3 | Kubernetes application packaging and deployment (Part 3) |
+| **Ingress** | NGINX Ingress Controller | External HTTP routing into the K8s cluster (Part 3) |
 | **Infrastructure** | Terraform | AWS resource provisioning |
-| **Configuration** | Ansible | Server configuration management |
-| **CI/CD** | GitHub Actions | Automated build and deployment |
-| **Cloud Provider** | AWS (EC2, ECR, IAM, EIP, VPC, S3, DynamoDB) | Cloud infrastructure |
-| **OS** | Ubuntu 22.04 LTS | Server operating system |
+| **Configuration** | Ansible | Server configuration management (Parts 1 & 2) |
+| **CI/CD** | GitHub Actions | Automated build, test, and deployment |
+| **Cloud Provider** | AWS (EKS, ECR, VPC, IAM, S3, DynamoDB, EBS, NLB) | Cloud infrastructure |
+| **OS** | Ubuntu 22.04 LTS | Worker node operating system |
 
 ---
 
@@ -169,29 +180,44 @@ The Todo List application is a web-based task management system built with Node.
 │   ├── views/                    # EJS templates
 │   ├── index.js                  # Application entry point
 │   └── package.json              # Node.js dependencies
-├── ansible/                      # Ansible configuration
+├── ansible/                      # Ansible configuration (Parts 1 & 2)
 │   ├── inventory.ini.example     # Inventory template
 │   └── playbook.yml              # Server configuration playbook
-├── compose/                      # Docker Compose files
+├── compose/                      # Docker Compose (local dev / Parts 1 & 2)
 │   └── docker-compose.yml        # Application orchestration
 ├── docker/                       # Docker configuration
 │   └── Dockerfile                # Application container definition
+├── helm/                         # Helm chart — Kubernetes deployment (Part 3)
+│   └── todo-app/                 # Chart for Todo App + MongoDB
+│       ├── Chart.yaml            # Chart metadata (name, version)
+│       ├── values.yaml           # Default configuration values
+│       └── templates/            # Kubernetes manifest templates
+│           ├── _helpers.tpl      # Shared template helper functions
+│           ├── configmap.yaml    # Non-sensitive config (PORT, NODE_ENV)
+│           ├── secret.yaml       # Sensitive config (mongoDbUrl)
+│           ├── deployment.yaml   # App pod specification
+│           ├── service.yaml      # Internal ClusterIP service for app
+│           ├── ingress.yaml      # NGINX ingress routing rule
+│           ├── mongodb-statefulset.yaml  # MongoDB with persistent EBS volume
+│           └── mongodb-service.yaml      # Internal ClusterIP for MongoDB
 ├── scripts/                      # Automation scripts
-│   ├── auto-update.sh            # Container auto-update script
-│   └── provision_configure.sh    # Full deployment automation
+│   ├── auto-update.sh            # EC2 cron auto-update (Parts 1 & 2)
+│   ├── provision_configure.sh    # One-command EKS deployment (updated Part 3)
+│   └── destroy_all.sh            # Nuclear destroy — removes all AWS resources
 ├── terraform/                    # Infrastructure as Code
 │   ├── bootstrap/                # One-time state backend setup
 │   │   └── main.tf               # S3 bucket + DynamoDB lock table
 │   ├── backend.tf                # S3 remote state configuration
-│   ├── vpc.tf                    # VPC, subnets, IGW, route tables
-│   ├── main.tf                   # Core infrastructure (EC2, SG, IAM)
+│   ├── vpc.tf                    # VPC, 2-AZ subnets, IGW, route tables
+│   ├── main.tf                   # AWS provider declaration
+│   ├── eks.tf                    # EKS cluster, node group, access entries (Part 3)
+│   ├── iam_eks.tf                # IAM roles for EKS cluster and nodes (Part 3)
 │   ├── ecr.tf                    # ECR repository
 │   ├── iam_cicd.tf               # CI/CD IAM user and policies
-│   ├── mongo.tf                  # MongoDB server infrastructure
 │   ├── variables.tf              # Input variables
 │   └── outputs.tf                # Output values
 ├── .github/workflows/            # GitHub Actions
-│   └── ci.yml                    # CI/CD pipeline definition
+│   └── ci.yml                    # CI/CD pipeline (build + deploy jobs)
 ├── .env.example                  # Environment variables template
 └── .dockerignore                 # Docker build exclusions
 ```
@@ -205,16 +231,18 @@ Before deploying this project, ensure you have the following installed and confi
 | Tool | Version | Purpose |
 |------|---------|---------|
 | AWS CLI | 2.x | AWS authentication and resource management |
-| Terraform | 1.0+ | Infrastructure provisioning |
-| Ansible | 2.9+ | Configuration management |
+| Terraform | 1.5+ | Infrastructure provisioning |
+| Ansible | 2.9+ | Configuration management (Parts 1 & 2 only) |
 | Docker | 20.10+ | Local container testing |
+| kubectl | 1.29+ | Kubernetes cluster management (Part 3) |
+| Helm | 3.14+ | Kubernetes package deployment (Part 3) |
 | Git | 2.x | Version control |
 
 ### AWS Requirements
 
 - AWS account with appropriate permissions
 - AWS CLI configured with credentials (`aws configure`)
-- Permissions for: EC2, ECR, IAM, VPC, EIP
+- Permissions for: EKS, EC2, ECR, IAM, VPC, S3, DynamoDB
 
 ---
 
@@ -594,6 +622,227 @@ This section provides visual evidence of the complete DevOps pipeline in action.
 ![Full Deployment](https://github.com/Usf277/Todo-List-nodejs-devops/blob/master/images/part-2/Full%20Deployment%20Script%20Output%202.png?raw=true)
 
 ![Full Deployment](https://github.com/Usf277/Todo-List-nodejs-devops/blob/master/images/part-2/Full%20Deployment%20Script%20Output%203.png?raw=true)
+
+---
+
+## Part 3: Migration to Kubernetes (EKS + Helm)
+
+This section documents the migration from the EC2 + Docker Compose architecture (Parts 1 & 2) to a Kubernetes-based deployment on AWS EKS using Helm. MongoDB moves from a standalone EC2 instance into a StatefulSet inside the cluster, the NGINX Ingress Controller replaces direct port exposure, and Helm packages all Kubernetes manifests into a single versioned chart.
+
+---
+
+### Architecture — EKS + Helm
+
+```
+                         GitHub Repository
+                                │
+                       Push to main/master
+                                │
+              ┌─────────────────▼─────────────────┐
+              │         GitHub Actions            │
+              │  Job 1: build                     │
+              │    - docker build + push to ECR   │
+              │    - smoke test                   │
+              │  Job 2: deploy (master only)      │
+              │    - helm upgrade nginx-ingress   │
+              │    - helm upgrade todo-app        │
+              └─────────────────┬─────────────────┘
+                                │
+  ┌─────────────────────────────▼──────────────────────────────────┐
+  │                    AWS Cloud (us-east-1)                       │
+  │                                                                │
+  │  ┌────────────┐  ┌──────────────────────────────────────────┐  │
+  │  │ S3 + DDB   │  │  ECR Registry  (todo-list)               │  │
+  │  │ (tfstate)  │  │  ← CI pushes image on every merge        │  │
+  │  └────────────┘  └─────────────────┬────────────────────────┘  │
+  │                                    │ pull (node IAM role)      │
+  │  ┌─────────────────────────────────▼──────────────────────┐    │
+  │  │           Custom VPC  (10.0.0.0/16)                    │    │
+  │  │                                                        │    │
+  │  │  ┌─────────────────────────────────────────────────┐   │    │
+  │  │  │  EKS Cluster: todo-list-eks  (v1.30)            │   │    │
+  │  │  │                                                 │   │    │
+  │  │  │  Node Group: 1–2 × t3.small                     │   │    │
+  │  │  │  AZ-a: 10.0.1.0/24   AZ-b: 10.0.2.0/24          │   │    │
+  │  │  │                                                 │   │    │
+  │  │  │  ┌──────────────────────────────────────────┐   │   │    │
+  │  │  │  │  nginx-ingress pod ──► AWS NLB (public)  │   │   │    │
+  │  │  │  └────────────────┬─────────────────────────┘   │   │    │
+  │  │  │                   │ routes /                    │   │    │
+  │  │  │  ┌────────────────▼──────┐  ┌─────────────────┐ │   │    │
+  │  │  │  │  Deployment           │  │  StatefulSet    │ │   │    │
+  │  │  │  │  app pod  :4000       ├─►│  mongodb :27017 │ │   │    │
+  │  │  │  │  ConfigMap + Secret   │  │  + EBS PVC 1Gi  │ │   │    │
+  │  │  │  └───────────────────────┘  └─────────────────┘ │   │    │
+  │  │  └─────────────────────────────────────────────────┘   │    │
+  │  └────────────────────────────────────────────────────────┘    │
+  └────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+### What Changed
+
+#### Infrastructure (Terraform)
+
+| File | Change | Reason |
+|------|--------|--------|
+| `main.tf` | Rewritten — provider only | EC2 instances, key pair, and security groups removed |
+| `vpc.tf` | Added `public_b` subnet (AZ-b) + EKS subnet tags | EKS control plane requires subnets in ≥ 2 AZs; subnet tags required for load balancer provisioning |
+| `eks.tf` | **New** — EKS cluster, managed node group, CI/CD access entries | Core cluster definition; access entries grant CI/CD user cluster-admin via EKS API auth |
+| `iam_eks.tf` | **New** — EKS cluster role + node role | EKS control plane needs its own IAM role; nodes need roles to join cluster and pull from ECR |
+| `iam_cicd.tf` | Added `eks:DescribeCluster` permission | Required by `aws eks update-kubeconfig` in the CI/CD pipeline |
+| `variables.tf` | Added `cluster_name`, `node_instance_type` | Parameterise new EKS resources |
+| `outputs.tf` | Replaced EC2 outputs with EKS outputs | `public_ip`/`mongo_private_ip`/`app_instance_id` no longer exist |
+| `mongo.tf` | **Deleted** | MongoDB runs as a StatefulSet in the cluster; dedicated EC2 instance removed |
+
+#### Deployment Tooling
+
+| Tool | Before | After |
+|------|--------|-------|
+| Application runtime | EC2 + Docker (via Ansible) | EKS managed node group |
+| MongoDB | Dedicated EC2 with `mongod` | StatefulSet pod + EBS-backed PVC |
+| Configuration | `.env` file (copied by Ansible) | Kubernetes ConfigMap + Secret |
+| External routing | Port 4000 exposed directly on EC2 EIP | NGINX Ingress → AWS NLB |
+| Deployment trigger | Cron job polling ECR every minute | `helm upgrade` in CI/CD pipeline |
+| Rollback | SSH in and `docker pull` a previous tag | `helm rollback todo-app` |
+
+#### `provision_configure.sh`
+
+Rewritten to reflect the new workflow. Steps are now:
+
+1. Bootstrap S3 + DynamoDB state backend
+2. `terraform apply` — provisions EKS cluster, VPC, IAM, ECR
+3. `aws eks update-kubeconfig` — points `kubectl` at the new cluster
+4. `helm upgrade --install nginx-ingress` — installs NGINX Ingress Controller
+5. `helm upgrade --install todo-app` — deploys the application
+6. Prints GitHub Secrets (`AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`)
+
+---
+
+### Helm Chart
+
+The chart at `helm/todo-app/` packages the full application stack.
+
+```
+helm/todo-app/
+├── Chart.yaml                   # Chart name and version
+├── values.yaml                  # Default configuration (image, resources, ingress host)
+└── templates/
+    ├── _helpers.tpl             # Shared name/label helpers
+    ├── configmap.yaml           # PORT, NODE_ENV → env vars in app pod
+    ├── secret.yaml              # mongoDbUrl → env var in app pod
+    ├── deployment.yaml          # Node.js app (Deployment, 1 replica)
+    ├── service.yaml             # ClusterIP on port 80 → pod port 4000
+    ├── ingress.yaml             # NGINX ingress rule (host-based routing)
+    ├── mongodb-statefulset.yaml # MongoDB 7.0 with volumeClaimTemplates
+    └── mongodb-service.yaml     # ClusterIP on port 27017
+```
+
+Key `values.yaml` parameters:
+
+| Key | Default | Override with |
+|-----|---------|---------------|
+| `app.image.tag` | `latest` | `--set app.image.tag=<sha>` (CI sets this automatically) |
+| `ingress.host` | `todo.example.com` | `--set ingress.host=<your-domain>` |
+| `secrets.mongoDbUrl` | `mongodb://todo-app-mongodb:27017/todolist` | `--set secrets.mongoDbUrl=<uri>` for external MongoDB |
+| `mongodb.storage` | `1Gi` | `--set mongodb.storage=5Gi` |
+
+---
+
+### CI/CD Pipeline Updates
+
+The pipeline now has two jobs:
+
+**Job 1 — `build`** (runs on all pushes and PRs):
+
+1. Build Docker image
+2. Push to ECR (SHA tag + `latest`)
+3. Smoke test (container starts and responds on port 4000)
+
+**Job 2 — `deploy`** (runs on `master`/`main` merge only, after `build` succeeds):
+
+1. `aws eks update-kubeconfig`
+2. `helm upgrade --install nginx-ingress` (idempotent — installs on first run, no-ops if unchanged)
+3. `helm upgrade --install todo-app --set app.image.tag=<sha>`
+
+---
+
+### Deployment
+
+#### One-command
+
+```bash
+./scripts/provision_configure.sh
+```
+
+#### Manual
+
+```bash
+# 1. Bootstrap state backend (one-time)
+cd terraform/bootstrap && terraform init && terraform apply
+
+# 2. Provision EKS (~15 min)
+cd ../.. && cd terraform && terraform init && terraform apply
+
+# 3. Connect kubectl
+aws eks update-kubeconfig --region us-east-1 --name todo-list-eks
+
+# 4. Install NGINX Ingress Controller
+helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx && helm repo update
+helm upgrade --install nginx-ingress ingress-nginx/ingress-nginx \
+  --namespace ingress-nginx --create-namespace --wait
+
+# 5. Deploy app
+helm upgrade --install todo-app ./helm/todo-app --wait
+
+# 6. Get external URL (wait ~2 min for NLB to provision)
+kubectl get svc -n ingress-nginx nginx-ingress-ingress-nginx-controller
+```
+
+#### Terraform Outputs
+
+| Output | Description |
+|--------|-------------|
+| `cluster_name` | EKS cluster name |
+| `cluster_endpoint` | EKS API server URL |
+| `kubeconfig_command` | Exact `aws eks update-kubeconfig` command |
+| `ecr_repository_url` | ECR repository URL |
+| `cicd_access_key_id` | CI/CD IAM access key |
+| `cicd_secret_access_key` | CI/CD IAM secret key *(sensitive)* |
+
+---
+
+### Destroy Everything
+
+```bash
+./scripts/destroy_all.sh
+# Type "destroy" when prompted
+```
+
+Execution order:
+
+1. `helm uninstall todo-app` — removes app pods and PVCs (releases EBS volumes)
+2. `helm uninstall nginx-ingress` — removes the AWS Network Load Balancer
+3. 60-second wait — allows AWS to fully deprovision the NLB before VPC deletion
+4. `terraform destroy` — removes EKS cluster, VPC, ECR, IAM
+
+> The S3 state bucket and DynamoDB lock table are **not** destroyed automatically. Destroy them manually in `terraform/bootstrap` only after everything else is gone.
+
+---
+
+### Cost (approximate, us-east-1)
+
+| Resource | $/month |
+|----------|---------|
+| EKS Control Plane | ~$73 |
+| 1× t3.small worker node | ~$15 |
+| Network Load Balancer | ~$16 |
+| EBS gp2 1Gi (MongoDB) | ~$0.10 |
+| ECR + S3 + DynamoDB | ~$0.20 |
+| **Total** | **~$104** |
+
+Run `./scripts/destroy_all.sh` when the cluster is not in use to avoid ongoing charges.
 
 ---
 

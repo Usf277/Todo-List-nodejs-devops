@@ -1,0 +1,6 @@
+apiVersion: v2
+name: todo-app
+description: Node.js Todo List Application with MongoDB on Kubernetes
+type: application
+version: 1.0.0
+appVersion: "1.0.0"

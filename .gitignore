@@ -9,3 +9,4 @@ terraform.tfstate
 .DS_Store
 .env
 ansible/inventory.ini
+explain.md
