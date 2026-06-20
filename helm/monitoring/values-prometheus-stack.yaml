@@ -1,0 +1,144 @@
+# kube-prometheus-stack — cost-optimized for a single-node CV cluster
+# Chart: prometheus-community/kube-prometheus-stack
+# Bundles: Prometheus + Grafana + Alertmanager + node-exporter + kube-state-metrics
+
+grafana:
+  adminPassword: "admin"  # override at install: --set grafana.adminPassword=<secret>
+
+  persistence:
+    enabled: true
+    size: 2Gi
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+
+  # Loki added as a second datasource — available after loki-stack is installed
+  additionalDataSources:
+    - name: Loki
+      type: loki
+      url: http://loki:3100
+      access: proxy
+      isDefault: false
+
+  # Auto-provision dashboards from grafana.com by ID
+  dashboardProviders:
+    dashboardproviders.yaml:
+      apiVersion: 1
+      providers:
+        - name: default
+          orgId: 1
+          folder: ""
+          type: file
+          disableDeletion: false
+          editable: true
+          options:
+            path: /var/lib/grafana/dashboards/default
+
+  dashboards:
+    default:
+      # NGINX Ingress — request rate, latency, error rate per route
+      nginx-ingress:
+        gnetId: 9614
+        revision: 1
+        datasource: Prometheus
+      # Node.js app — heap, event loop, HTTP request duration from prom-client
+      nodejs-app:
+        gnetId: 11159
+        revision: 1
+        datasource: Prometheus
+      # Kubernetes pods — CPU and RAM per pod/namespace
+      k8s-pods:
+        gnetId: 6417
+        revision: 1
+        datasource: Prometheus
+      # Loki — log explorer with pod/container label filters
+      loki-logs:
+        gnetId: 13639
+        revision: 2
+        datasource: Loki
+
+  # Expose Grafana through the existing NGINX Ingress Controller
+  # Change host to your domain, or delete this block and use port-forward instead
+  ingress:
+    enabled: true
+    ingressClassName: nginx
+    hosts:
+      - grafana.todo.example.com
+    annotations:
+      nginx.ingress.kubernetes.io/proxy-body-size: "0"
+
+prometheus:
+  prometheusSpec:
+    retention: 7d
+
+    resources:
+      requests:
+        cpu: 200m
+        memory: 400Mi
+      limits:
+        cpu: 500m
+        memory: 800Mi
+
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 5Gi
+
+    # Discover ServiceMonitors in ALL namespaces
+    # Required so Prometheus finds: todo-app (default ns) + nginx (ingress-nginx ns)
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+
+alertmanager:
+  alertmanagerSpec:
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 100m
+        memory: 128Mi
+
+  config:
+    global:
+      resolve_timeout: 5m
+    route:
+      group_by: ["alertname", "namespace"]
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 1h
+      receiver: "null"
+    receivers:
+      - name: "null"
+    inhibit_rules:
+      - source_match:
+          severity: critical
+        target_match:
+          severity: warning
+        equal: ["alertname", "namespace"]
+
+nodeExporter:
+  resources:
+    requests:
+      cpu: 50m
+      memory: 32Mi
+    limits:
+      cpu: 100m
+      memory: 64Mi
+
+kube-state-metrics:
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 100m
+      memory: 128Mi

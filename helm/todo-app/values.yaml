@@ -45,3 +45,7 @@ config:
 # Override with --set secrets.mongoDbUrl=<uri> to use an external MongoDB.
 secrets:
   mongoDbUrl: "mongodb://todo-app-mongodb:27017/todolist"
+
+# Prometheus ServiceMonitor — set to false if kube-prometheus-stack is not installed
+metrics:
+  enabled: true

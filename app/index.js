@@ -1,6 +1,7 @@
 const express = require('express');
 const port = process.env.PORT || 4000;
 const path = require('path');
+const promClient = require('prom-client');
 
 // require the mongoose file
 const db = require('./config/mongoose');
@@ -9,6 +10,38 @@ const Login = require('./models/login');
 const Dashboard = require('./models/dashboard');
 
 const app = express();
+
+// ── Prometheus metrics ────────────────────────────────────────────────────────
+// Collect default Node.js process metrics: heap, CPU, event loop lag, GC, etc.
+promClient.collectDefaultMetrics();
+
+// Track HTTP request duration per method/route/status
+const httpRequestDuration = new promClient.Histogram({
+    name: 'http_request_duration_seconds',
+    help: 'HTTP request latency in seconds',
+    labelNames: ['method', 'route', 'status_code'],
+    buckets: [0.05, 0.1, 0.3, 0.5, 1, 1.5, 2, 5]
+});
+
+// Duration middleware must be registered before any route handlers
+app.use((req, res, next) => {
+    const end = httpRequestDuration.startTimer();
+    res.on('finish', () => {
+        end({
+            method: req.method,
+            route: req.route ? req.route.path : req.path,
+            status_code: res.statusCode
+        });
+    });
+    next();
+});
+
+// Expose /metrics for Prometheus scraping (ServiceMonitor targets this endpoint)
+app.get('/metrics', async (req, res) => {
+    res.set('Content-Type', promClient.register.contentType);
+    res.end(await promClient.register.metrics());
+});
+// ─────────────────────────────────────────────────────────────────────────────
 
 // path: routes\index.js
 app.get('/', require('./routes'));
@@ -62,7 +95,6 @@ app.post('/addtask', function(req,res){
     })
     .catch(err => {
         console.log("Error Creating Task!!", err);
-        // res.status(500).send("Error Creating Task!!");
         res.redirect('back');
     });
 });

@@ -27,6 +27,12 @@ A production-ready Node.js Todo List application with complete DevOps infrastruc
   - [Deployment](#deployment)
   - [Destroy Everything](#destroy-everything)
   - [Cost](#cost-approximate-us-east-1)
+- [Part 4: Monitoring & Logging Stack](#part-4-monitoring--logging-stack)
+  - [Stack Overview](#stack-overview)
+  - [What Gets Monitored](#what-gets-monitored)
+  - [What Changed](#what-changed-1)
+  - [Accessing the Tools](#accessing-the-tools)
+  - [Cost Addition](#cost-addition)
 - [Screenshots](#screenshots)
 
 ---
@@ -158,6 +164,8 @@ The Todo List application is a web-based task management system built with Node.
 | **Container Orchestration** | Kubernetes (EKS 1.30) | Production container management (Part 3) |
 | **Package Management (K8s)** | Helm 3 | Kubernetes application packaging and deployment (Part 3) |
 | **Ingress** | NGINX Ingress Controller | External HTTP routing into the K8s cluster (Part 3) |
+| **Monitoring** | Prometheus, Grafana, Alertmanager | Metrics collection, dashboards, and alerting (Part 4) |
+| **Logging** | Loki, Promtail | Log aggregation and exploration (Part 4) |
 | **Infrastructure** | Terraform | AWS resource provisioning |
 | **Configuration** | Ansible | Server configuration management (Parts 1 & 2) |
 | **CI/CD** | GitHub Actions | Automated build, test, and deployment |
@@ -843,6 +851,116 @@ Execution order:
 | **Total** | **~$104** |
 
 Run `./scripts/destroy_all.sh` when the cluster is not in use to avoid ongoing charges.
+
+---
+
+## Part 4: Monitoring & Logging Stack
+
+Adds full observability to the EKS cluster using two Helm chart installations deployed into a dedicated `monitoring` namespace.
+
+---
+
+### Stack Overview
+
+| Tool | Helm Chart | Purpose |
+|------|-----------|---------|
+| **Prometheus** | `prometheus-community/kube-prometheus-stack` | Metrics collection and storage |
+| **Grafana** | bundled with kube-prometheus-stack | Dashboards and visualization |
+| **Alertmanager** | bundled with kube-prometheus-stack | Alert routing and grouping |
+| **node-exporter** | bundled with kube-prometheus-stack | Node-level CPU/RAM/disk metrics |
+| **kube-state-metrics** | bundled with kube-prometheus-stack | Kubernetes object state metrics |
+| **Loki** | `grafana/loki-stack` | Log aggregation and storage |
+| **Promtail** | bundled with loki-stack | Log collector DaemonSet |
+
+Prometheus scrapes metrics using `ServiceMonitor` CRDs. Promtail runs as a DaemonSet on every node and ships all pod stdout/stderr to Loki. Both Prometheus and Loki are connected to Grafana as datasources.
+
+---
+
+### What Gets Monitored
+
+| Signal | Source | Dashboard |
+|--------|--------|-----------|
+| Node CPU & RAM | node-exporter (DaemonSet) | k8s-pods (ID 6417) |
+| Pod CPU & RAM | kube-state-metrics + cAdvisor | k8s-pods (ID 6417) |
+| HTTP request rate, latency, error rate | NGINX Ingress `/metrics` via ServiceMonitor | nginx-ingress (ID 9614) |
+| Node.js heap, event loop, GC, HTTP duration | `prom-client` on `/metrics` via ServiceMonitor | nodejs-app (ID 11159) |
+| Container logs (all pods) | Promtail → Loki | loki-logs (ID 13639) |
+| K8s alerts (pod crash loop, node not ready, etc.) | kube-prometheus-stack default rules → Alertmanager | built-in |
+
+---
+
+### What Changed
+
+#### Application (`app/`)
+
+| File | Change |
+|------|--------|
+| `app/package.json` | Added `prom-client: ^15.0.0` dependency |
+| `app/index.js` | Added `collectDefaultMetrics()`, HTTP duration Histogram, request duration middleware, and `/metrics` endpoint |
+
+#### Helm Chart (`helm/todo-app/`)
+
+| File | Change |
+|------|--------|
+| `values.yaml` | Added `metrics.enabled: true` |
+| `templates/servicemonitor.yaml` | **New** — tells Prometheus to scrape `/metrics` on the app pods every 30s |
+
+#### Monitoring Values (`helm/monitoring/`)
+
+| File | Purpose |
+|------|---------|
+| `values-prometheus-stack.yaml` | **New** — kube-prometheus-stack config: resource limits, 5Gi Prometheus storage, Loki datasource, 4 auto-provisioned dashboards, cross-namespace ServiceMonitor discovery |
+| `values-loki.yaml` | **New** — Loki + Promtail config: 5Gi log storage, 7-day retention, Grafana disabled (already installed by kube-prometheus-stack) |
+
+#### Scripts
+
+| File | Change |
+|------|--------|
+| `provision_configure.sh` | Step 3: NGINX now deployed with `controller.metrics.enabled=true`; Step 5 (new): installs kube-prometheus-stack + loki-stack |
+| `destroy_all.sh` | Tears down monitoring Helm releases and PVCs before app teardown |
+
+#### CI/CD
+
+| File | Change |
+|------|--------|
+| `.github/workflows/ci.yml` | NGINX ingress deploy step adds `controller.metrics.enabled=true` and `controller.metrics.serviceMonitor.enabled=true` |
+
+---
+
+### Accessing the Tools
+
+```bash
+# Grafana (dashboards)
+kubectl port-forward -n monitoring svc/kube-prometheus-stack-grafana 3000:80
+# → http://localhost:3000  login: admin / admin
+
+# Prometheus (metrics explorer + alert rules)
+kubectl port-forward -n monitoring svc/kube-prometheus-stack-prometheus 9090:9090
+# → http://localhost:9090  then: Status → Targets (verify app is being scraped)
+
+# Alertmanager (active alerts + silences)
+kubectl port-forward -n monitoring svc/kube-prometheus-stack-alertmanager 9093:9093
+# → http://localhost:9093
+
+# Browse application logs
+# Grafana → Explore → select Loki datasource
+# → query: {namespace="default"}
+```
+
+Grafana is also exposed via the NGINX Ingress on `grafana.todo.example.com` (set in `values-prometheus-stack.yaml`). Update this host to your domain or remove the Ingress block and use port-forward only.
+
+---
+
+### Cost Addition
+
+| New Resource | $/month |
+|---|---|
+| Prometheus EBS 5Gi | ~$0.50 |
+| Loki EBS 5Gi | ~$0.50 |
+| Grafana EBS 2Gi | ~$0.20 |
+| **Total addition** | **~$1.20** |
+
+Monitoring pods (Prometheus, Grafana, Loki, Promtail, Alertmanager, node-exporter, kube-state-metrics) run within the existing node group — a second t3.small node may spin up depending on available capacity, adding ~$15/month. Destroy with `./scripts/destroy_all.sh` to avoid charges when not in use.
 
 ---
 

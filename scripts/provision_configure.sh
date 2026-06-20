@@ -1,6 +1,5 @@
 #!/bin/bash
-# provision_configure.sh — One-command deployment to EKS
-# Replaced EC2+Ansible flow with EKS+Helm flow in Part 3 of the project.
+# provision_configure.sh — One-command deployment to EKS + monitoring stack
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -11,8 +10,6 @@ echo "🚀 Starting EKS Deployment..."
 echo "------------------------------------------------------------------"
 
 # Step 0: Bootstrap remote state backend (S3 + DynamoDB)
-# Must run once before main infra. Creates the S3 bucket and DynamoDB table
-# that terraform/backend.tf references. Safe to re-run (idempotent).
 echo "Step 0: Bootstrapping Remote State Backend (S3 + DynamoDB)..."
 cd "$ROOT_DIR/terraform/bootstrap"
 terraform init -input=false
@@ -24,7 +21,6 @@ cd "$ROOT_DIR/terraform"
 terraform init -input=false
 terraform apply -auto-approve
 
-# Extract outputs — note: no more public_ip or mongo_private_ip (those were EC2)
 CLUSTER_NAME=$(terraform output -raw cluster_name)
 ECR_URL=$(terraform output -raw ecr_repository_url)
 CICD_AK=$(terraform output -raw cicd_access_key_id)
@@ -44,9 +40,9 @@ echo "Step 2: Configuring kubectl..."
 $KUBECONFIG_CMD
 echo "✅ kubeconfig updated — kubectl now targets $CLUSTER_NAME"
 
-# Step 3: Install NGINX Ingress Controller via Helm
-# --install makes this idempotent: first run installs, subsequent runs upgrade.
-# The controller creates an AWS Network Load Balancer that becomes the public URL.
+# Step 3: Install NGINX Ingress Controller
+# metrics.enabled=true exposes a /metrics endpoint on the controller pod
+# so Prometheus can scrape HTTP request counts, latency, and error rates per route
 echo "Step 3: Installing NGINX Ingress Controller..."
 helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
 helm repo update
@@ -56,17 +52,40 @@ helm upgrade --install nginx-ingress ingress-nginx/ingress-nginx \
   --set controller.replicaCount=1 \
   --set controller.resources.requests.cpu=50m \
   --set controller.resources.requests.memory=90Mi \
+  --set controller.metrics.enabled=true \
+  --set controller.metrics.serviceMonitor.enabled=true \
   --wait --timeout 5m
 echo "✅ NGINX Ingress Controller installed"
 
-# Step 4: Deploy the Todo App + MongoDB via Helm chart
+# Step 4: Deploy the Todo App + MongoDB
 echo "Step 4: Deploying Todo App via Helm..."
 helm upgrade --install todo-app "$ROOT_DIR/helm/todo-app" \
   --namespace default \
   --wait --timeout 5m
 echo "✅ Todo App deployed"
 
-# Get the public hostname of the ingress load balancer
+# Step 5: Install monitoring stack (Prometheus + Grafana + Alertmanager + Loki)
+echo "Step 5: Installing monitoring stack..."
+helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+helm repo add grafana https://grafana.github.io/helm-charts
+helm repo update
+
+# kube-prometheus-stack: Prometheus + Grafana + Alertmanager + node-exporter + kube-state-metrics
+helm upgrade --install kube-prometheus-stack prometheus-community/kube-prometheus-stack \
+  --namespace monitoring \
+  --create-namespace \
+  --values "$ROOT_DIR/helm/monitoring/values-prometheus-stack.yaml" \
+  --wait --timeout 10m
+
+# loki-stack: Loki (log storage) + Promtail (log collector DaemonSet)
+helm upgrade --install loki grafana/loki-stack \
+  --namespace monitoring \
+  --values "$ROOT_DIR/helm/monitoring/values-loki.yaml" \
+  --wait --timeout 5m
+
+echo "✅ Monitoring stack installed"
+
+# Get the public hostname of the app ingress load balancer
 echo ""
 echo "Getting external URL (may take 2-3 minutes for the AWS NLB to provision)..."
 sleep 15
@@ -75,16 +94,15 @@ LB_HOST=$(kubectl get svc -n ingress-nginx nginx-ingress-ingress-nginx-controlle
 
 echo "------------------------------------------------------------------"
 echo "🎉 Deployment Complete!"
-echo "   External URL: http://$LB_HOST"
-echo "   (If <still provisioning>, run: kubectl get svc -n ingress-nginx)"
+echo ""
+echo "   App URL    : http://$LB_HOST"
+echo "   Grafana    : kubectl port-forward -n monitoring svc/kube-prometheus-stack-grafana 3000:80"
+echo "                then open http://localhost:3000  (admin / admin)"
+echo "   Prometheus : kubectl port-forward -n monitoring svc/kube-prometheus-stack-prometheus 9090:9090"
 echo "------------------------------------------------------------------"
 echo "⚠️🚨  ACTION REQUIRED: GITHUB SECRETS SETUP ⚠️🚨"
 echo "Add the following secrets to your GitHub Repository:"
 echo ""
 echo "  AWS_ACCESS_KEY_ID:     $CICD_AK"
 echo "  AWS_SECRET_ACCESS_KEY: $CICD_SK"
-echo ""
-echo "  These credentials belong to the CI/CD IAM user and already have:"
-echo "    - ECR push access (to build and push images)"
-echo "    - EKS cluster-admin access (to run helm upgrade in CI)"
 echo "------------------------------------------------------------------"

@@ -117,6 +117,8 @@ jobs:
           --set controller.replicaCount=1 \
           --set controller.resources.requests.cpu=50m \
           --set controller.resources.requests.memory=90Mi \
+          --set controller.metrics.enabled=true \
+          --set controller.metrics.serviceMonitor.enabled=true \
           --wait --timeout 5m
 
     - name: Deploy app via Helm

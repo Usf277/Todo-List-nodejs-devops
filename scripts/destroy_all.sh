@@ -9,6 +9,7 @@ NAMESPACE="${NAMESPACE:-default}"
 RELEASE_NAME="${RELEASE_NAME:-todo-app}"
 INGRESS_RELEASE="nginx-ingress"
 INGRESS_NAMESPACE="ingress-nginx"
+MONITORING_NAMESPACE="monitoring"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TERRAFORM_DIR="$SCRIPT_DIR/../terraform"
 
@@ -18,6 +19,7 @@ echo "║    NUCLEAR DESTROY — removes everything      ║"
 echo "╚══════════════════════════════════════════════╝"
 echo ""
 echo "This will permanently destroy:"
+echo "  • Monitoring stack (Prometheus, Grafana, Loki, Alertmanager)"
 echo "  • Helm releases (app + nginx-ingress)"
 echo "  • All PersistentVolumeClaims and EBS volumes"
 echo "  • EKS cluster, node group, and all pods"
@@ -40,6 +42,14 @@ echo "==> [1/5] Connecting to EKS cluster..."
 if aws eks update-kubeconfig --region "$REGION" --name "$CLUSTER_NAME" 2>/dev/null; then
 
   echo "==> [2/5] Uninstalling Helm releases..."
+
+  # Monitoring stack first (Prometheus PVCs are expensive; release them early)
+  helm uninstall kube-prometheus-stack -n "$MONITORING_NAMESPACE" --wait 2>/dev/null \
+    || echo "      kube-prometheus-stack not found — skipping"
+  helm uninstall loki -n "$MONITORING_NAMESPACE" --wait 2>/dev/null \
+    || echo "      loki not found — skipping"
+
+  # App and ingress
   helm uninstall "$RELEASE_NAME" -n "$NAMESPACE" --wait 2>/dev/null \
     || echo "      $RELEASE_NAME not found — skipping"
   helm uninstall "$INGRESS_RELEASE" -n "$INGRESS_NAMESPACE" --wait 2>/dev/null \
@@ -47,7 +57,9 @@ if aws eks update-kubeconfig --region "$REGION" --name "$CLUSTER_NAME" 2>/dev/nu
 
   echo "==> [3/5] Deleting PVCs to release EBS volumes..."
   kubectl delete pvc --all -n "$NAMESPACE" --wait=true 2>/dev/null || true
+  kubectl delete pvc --all -n "$MONITORING_NAMESPACE" --wait=true 2>/dev/null || true
   kubectl delete namespace "$INGRESS_NAMESPACE" --wait=true 2>/dev/null || true
+  kubectl delete namespace "$MONITORING_NAMESPACE" --wait=true 2>/dev/null || true
 
   echo "      Waiting 60s for AWS Load Balancers to be fully deprovisioned..."
   echo "      (Terraform destroy fails if the LB's ENIs still hold the VPC.)"
