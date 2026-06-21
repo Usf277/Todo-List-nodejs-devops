@@ -28,15 +28,15 @@ spec:
             - name: mongodb-data
               mountPath: /data/db
           readinessProbe:
-            exec:
-              command: ["mongosh", "--eval", "db.adminCommand('ping')"]
+            tcpSocket:
+              port: 27017
             initialDelaySeconds: 20
             periodSeconds: 5
             failureThreshold: 6
           livenessProbe:
-            exec:
-              command: ["mongosh", "--eval", "db.adminCommand('ping')"]
-            initialDelaySeconds: 90
+            tcpSocket:
+              port: 27017
+            initialDelaySeconds: 60
             periodSeconds: 10
             failureThreshold: 3
           resources:
