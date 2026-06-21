@@ -40,10 +40,25 @@ echo "Step 2: Configuring kubectl..."
 $KUBECONFIG_CMD
 echo "✅ kubeconfig updated — kubectl now targets $CLUSTER_NAME"
 
-# Step 3: Install NGINX Ingress Controller
-# metrics.enabled=true exposes a /metrics endpoint on the controller pod
-# so Prometheus can scrape HTTP request counts, latency, and error rates per route
-echo "Step 3: Installing NGINX Ingress Controller..."
+# Step 3: Install kube-prometheus-stack FIRST
+# This installs the Prometheus Operator and its CRDs (including ServiceMonitor).
+# NGINX and the app chart both create ServiceMonitor objects — those fail with
+# "no matches for kind ServiceMonitor" if the CRD does not exist yet.
+echo "Step 3: Installing kube-prometheus-stack (Prometheus + Grafana + Alertmanager)..."
+helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+helm repo add grafana https://grafana.github.io/helm-charts
+helm repo update
+
+helm upgrade --install kube-prometheus-stack prometheus-community/kube-prometheus-stack \
+  --namespace monitoring \
+  --create-namespace \
+  --values "$ROOT_DIR/helm/monitoring/values-prometheus-stack.yaml" \
+  --wait --timeout 10m
+echo "✅ kube-prometheus-stack installed (ServiceMonitor CRD now available)"
+
+# Step 4: Install NGINX Ingress Controller
+# serviceMonitor.enabled=true is safe here — the CRD exists from Step 3.
+echo "Step 4: Installing NGINX Ingress Controller..."
 helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
 helm repo update
 helm upgrade --install nginx-ingress ingress-nginx/ingress-nginx \
@@ -57,33 +72,21 @@ helm upgrade --install nginx-ingress ingress-nginx/ingress-nginx \
   --wait --timeout 5m
 echo "✅ NGINX Ingress Controller installed"
 
-# Step 4: Deploy the Todo App + MongoDB
-echo "Step 4: Deploying Todo App via Helm..."
+# Step 5: Deploy the Todo App + MongoDB
+# metrics.enabled=true creates a ServiceMonitor — safe because the CRD exists from Step 3.
+echo "Step 5: Deploying Todo App via Helm..."
 helm upgrade --install todo-app "$ROOT_DIR/helm/todo-app" \
   --namespace default \
   --wait --timeout 5m
 echo "✅ Todo App deployed"
 
-# Step 5: Install monitoring stack (Prometheus + Grafana + Alertmanager + Loki)
-echo "Step 5: Installing monitoring stack..."
-helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
-helm repo add grafana https://grafana.github.io/helm-charts
-helm repo update
-
-# kube-prometheus-stack: Prometheus + Grafana + Alertmanager + node-exporter + kube-state-metrics
-helm upgrade --install kube-prometheus-stack prometheus-community/kube-prometheus-stack \
-  --namespace monitoring \
-  --create-namespace \
-  --values "$ROOT_DIR/helm/monitoring/values-prometheus-stack.yaml" \
-  --wait --timeout 10m
-
-# loki-stack: Loki (log storage) + Promtail (log collector DaemonSet)
+# Step 6: Install Loki + Promtail
+echo "Step 6: Installing Loki + Promtail (log aggregation)..."
 helm upgrade --install loki grafana/loki-stack \
   --namespace monitoring \
   --values "$ROOT_DIR/helm/monitoring/values-loki.yaml" \
   --wait --timeout 5m
-
-echo "✅ Monitoring stack installed"
+echo "✅ Loki + Promtail installed"
 
 # Get the public hostname of the app ingress load balancer
 echo ""

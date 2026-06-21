@@ -111,6 +111,11 @@ jobs:
       run: |
         helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
         helm repo update
+        # serviceMonitor.enabled is intentionally omitted here.
+        # CI does not install kube-prometheus-stack, so the ServiceMonitor CRD
+        # may not exist on the cluster at deploy time. The metrics endpoint is
+        # still enabled; Prometheus scrapes it via the ServiceMonitor created
+        # by provision_configure.sh when monitoring was first installed.
         helm upgrade --install nginx-ingress ingress-nginx/ingress-nginx \
           --namespace ingress-nginx \
           --create-namespace \
@@ -118,7 +123,6 @@ jobs:
           --set controller.resources.requests.cpu=50m \
           --set controller.resources.requests.memory=90Mi \
           --set controller.metrics.enabled=true \
-          --set controller.metrics.serviceMonitor.enabled=true \
           --wait --timeout 5m
 
     - name: Deploy app via Helm
