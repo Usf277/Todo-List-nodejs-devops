@@ -33,6 +33,7 @@ A production-ready Node.js Todo List application with complete DevOps infrastruc
   - [What Changed](#what-changed-1)
   - [Accessing the Tools](#accessing-the-tools)
   - [Cost Addition](#cost-addition)
+- [Part 5: Production Challenges & Fixes](#part-5-production-challenges--fixes)
 - [Screenshots](#screenshots)
 
 ---
@@ -961,6 +962,237 @@ Grafana is also exposed via the NGINX Ingress on `grafana.todo.example.com` (set
 | **Total addition** | **~$1.20** |
 
 Monitoring pods (Prometheus, Grafana, Loki, Promtail, Alertmanager, node-exporter, kube-state-metrics) run within the existing node group — a second t3.small node may spin up depending on available capacity, adding ~$15/month. Destroy with `./scripts/destroy_all.sh` to avoid charges when not in use.
+
+---
+
+## Part 5: Production Challenges & Fixes
+
+This section documents every real failure encountered during the first live provisioning run of the EKS stack, the root cause of each, and the exact fix applied. These are not theoretical — every entry below blocked deployment until it was resolved.
+
+---
+
+### Challenge 1 — MongoDB PVC Stuck `Pending` Forever
+
+**Symptom:** After `helm upgrade --install todo-app`, the MongoDB pod stayed `Pending` and `kubectl rollout status` hung indefinitely.
+
+**Diagnosis:**
+```bash
+kubectl describe pod todo-app-mongodb-0 -n default
+# Events: pod has unbound immediate PersistentVolumeClaims
+
+kubectl get pvc -n default
+# STATUS: Pending   STORAGECLASS: <unset>
+
+kubectl get storageclass
+# NAME   PROVISIONER             → kubernetes.io/aws-ebs  (old in-tree driver)
+```
+
+**Root cause:** EKS 1.23+ removed the in-tree `kubernetes.io/aws-ebs` EBS provisioner. The Terraform stack installed the EBS CSI addon (which uses `ebs.csi.aws.com`) but created no StorageClass for it. The Helm chart's `volumeClaimTemplate` had no `storageClassName`, so the PVC got no provisioner and stayed `Pending` forever.
+
+**Fix:**
+- Added Step 6 to `provision_configure.sh`: creates a `gp2-csi` StorageClass using `ebs.csi.aws.com` and marks it as the cluster default, before the Helm deploy.
+- Added `storageClassName: gp2-csi` to `helm/todo-app/templates/mongodb-statefulset.yaml` and `values.yaml`.
+
+**Files changed:** `scripts/provision_configure.sh`, `helm/todo-app/templates/mongodb-statefulset.yaml`, `helm/todo-app/values.yaml`
+
+---
+
+### Challenge 2 — MongoDB `CrashLoopBackOff` — Liveness Probe Killing the Container
+
+**Symptom:** After the PVC bound and MongoDB started, the pod entered `CrashLoopBackOff`. The container repeatedly restarted every ~30 seconds with exit code 0.
+
+**Diagnosis:**
+```bash
+kubectl describe pod todo-app-mongodb-0 -n default
+# Warning  Unhealthy  Liveness probe failed: command "mongosh --eval ..." timed out
+# Normal   Killing    Container mongodb failed liveness probe, will be restarted
+```
+
+Exit code 0 = Kubernetes sent `SIGTERM`. MongoDB was not crashing — it was being **murdered** by the liveness probe.
+
+**Root cause:** The original probe had `initialDelaySeconds: 30` and `timeoutSeconds: 1` (the Kubernetes default). MongoDB 7.0 needs 60–90 seconds to initialize WiredTiger storage on a fresh EBS volume before it can respond to any command. Probing started too early and timed out in under 1 second, causing 3 consecutive failures and a kill.
+
+**Fix:**
+- Raised `initialDelaySeconds` from 30 to 90.
+- Raised `failureThreshold` on the readiness probe from 3 to 6.
+- Raised MongoDB memory limit from 256Mi to 512Mi (256Mi is too low for WiredTiger's initial cache allocation).
+
+**Files changed:** `helm/todo-app/templates/mongodb-statefulset.yaml`, `helm/todo-app/values.yaml`
+
+---
+
+### Challenge 3 — MongoDB Probe Still Timing Out Even at 5s
+
+**Symptom:** After raising `initialDelaySeconds` to 90 and adding `timeoutSeconds: 5`, MongoDB continued crashing. The event still read "command timed out."
+
+**Diagnosis:**
+```bash
+# Verify the new spec is on the running pod
+kubectl get statefulset todo-app-mongodb \
+  -o jsonpath='{.spec.template.spec.containers[0].livenessProbe}'
+# → timeoutSeconds: 5  ✓
+
+# Manually run the exact probe command and time it
+time kubectl exec todo-app-mongodb-0 -- mongosh --eval "db.adminCommand('ping')"
+# → { ok: 1 }   real: 10.4s
+
+# Check node CPU pressure
+kubectl describe node | grep -A5 "Allocated resources"
+# → cpu: 1700m limits (88% of 2 vCPU)
+```
+
+**Root cause:** The node's CPU was at 88% limits under the full monitoring stack (kube-prometheus-stack alone runs 8 pods). `mongosh` is a Node.js application — spawning a new Node.js process for every probe call competes for CPU. Under heavy throttling, even a simple `db.adminCommand('ping')` took 5–10 seconds. The `exec` probe design was fundamentally wrong for a resource-constrained single node.
+
+**Fix:** Replaced both `exec` probes with `tcpSocket` probes on port 27017. A TCP socket probe is handled entirely inside the kubelet — no process fork, no Node.js startup, completes in microseconds. MongoDB only opens port 27017 after WiredTiger finishes initializing, making it a valid readiness signal. Lowered `initialDelaySeconds` from 90 to 60.
+
+```yaml
+readinessProbe:
+  tcpSocket:
+    port: 27017
+  initialDelaySeconds: 20
+  periodSeconds: 5
+  failureThreshold: 6
+
+livenessProbe:
+  tcpSocket:
+    port: 27017
+  initialDelaySeconds: 60
+  periodSeconds: 10
+  failureThreshold: 3
+```
+
+**Files changed:** `helm/todo-app/templates/mongodb-statefulset.yaml`
+
+---
+
+### Challenge 4 — Loki Pod `Pending` — Node at Maximum Pod Capacity
+
+**Symptom:** Loki `helm upgrade --install` timed out. `loki-0` pod was stuck `Pending`.
+
+**Diagnosis:**
+```bash
+kubectl describe pod loki-0 -n monitoring
+# Warning  FailedScheduling: 0/1 nodes are available: 1 Too many pods.
+
+kubectl get pods -A --no-headers | wc -l
+# 18
+
+kubectl describe node | grep "pods:"
+# Capacity: pods: 17
+```
+
+**Root cause:** A `t3.medium` node has a hard pod limit of 17, determined by the VPC CNI formula `(ENIs × IPs_per_ENI) − ENIs = (3×6)−3 = 15 secondary IPs + 2 = 17 max`. The full stack consumed all 17 slots: kube-system (6 pods) + kube-prometheus-stack (8 pods) + NGINX + app + MongoDB = 17. Loki was pod 18.
+
+**Fix:** Changed `desired_size` from 1 to 2 in `terraform/eks.tf` (the node group already had `max_size = 2`). Applied with `terraform apply -target=aws_eks_node_group.main`. The second node joined within 90 seconds and Loki scheduled immediately.
+
+**Files changed:** `terraform/eks.tf`
+
+---
+
+### Challenge 5 — App Returns 404 Not Found (NGINX)
+
+**Symptom:** All pods running, NLB provisioned, but accessing the ELB URL in a browser returned `404 Not Found nginx`.
+
+**Diagnosis:**
+```bash
+kubectl get ingress -n default -o yaml | grep -A5 "rules:"
+# rules:
+#   - host: todo.example.com    ← virtual host filter active
+
+# Test with correct Host header
+curl -H "Host: todo.example.com" http://<ELB_HOST>
+# → 200  ✓
+
+# Test without (what the browser sends)
+curl http://<ELB_HOST>
+# → 404  ✗
+```
+
+**Root cause:** The Ingress had `host: todo.example.com`. NGINX uses this as a virtual host filter — it only routes requests where the HTTP `Host` header exactly matches. Browsers accessing the raw ELB hostname send `Host: <elb-hostname>`, which matches no Ingress rule, so NGINX returns 404.
+
+**Fix:** Made the `host` field optional in `helm/todo-app/templates/ingress.yaml`. When `host` is empty, NGINX creates a catch-all rule that accepts any `Host` header. Set `host: ""` in `values.yaml` as the default. Set `host: your-domain.com` when real DNS is configured.
+
+**Files changed:** `helm/todo-app/templates/ingress.yaml`, `helm/todo-app/values.yaml`
+
+---
+
+### Challenge 6 — EBS CSI Driver Addon Timeout During Terraform Apply
+
+**Symptom:** `terraform apply` hung for 15+ minutes and eventually timed out at `aws_eks_addon.ebs_csi`.
+
+**Root cause:** The initial implementation attached the EBS CSI policy to the node IAM role (node-level permissions). The EBS CSI addon expects to authenticate via IRSA (IAM Roles for Service Accounts) using the cluster's OIDC provider. Without a dedicated service account role, the addon waited indefinitely for credentials that never arrived.
+
+**Fix:** Implemented full IRSA:
+1. Added `terraform/irsa.tf` — creates OIDC provider + dedicated `todo-list-ebs-csi-role` IAM role with a trust policy scoped to the `ebs-csi-controller-sa` service account.
+2. Attached `AmazonEBSCSIDriverPolicy` to the IRSA role (removed from node role).
+3. Updated `aws_eks_addon.ebs_csi` to reference `service_account_role_arn`.
+
+**Files changed:** `terraform/irsa.tf` (new), `terraform/eks.tf`, `terraform/iam_eks.tf`
+
+---
+
+### Challenge 7 — NGINX Ingress Failed: `ServiceMonitor` CRD Not Found
+
+**Symptom:** During early provisioning runs, `helm upgrade --install nginx-ingress` with `--set controller.metrics.serviceMonitor.enabled=true` failed because the `ServiceMonitor` CRD did not exist yet.
+
+**Root cause:** The provision script was installing NGINX before `kube-prometheus-stack`. `ServiceMonitor` is a CRD installed by the Prometheus Operator (part of kube-prometheus-stack). Trying to create a `ServiceMonitor` resource before its CRD exists causes a hard error.
+
+**Fix:** Reordered the provision script steps:
+1. Install `kube-prometheus-stack` first (Prometheus Operator + all CRDs)
+2. Wait for the operator deployment to be ready (`kubectl rollout status`)
+3. Only then install NGINX Ingress (CRD now exists, `serviceMonitor.enabled=true` is safe)
+
+**Files changed:** `scripts/provision_configure.sh`
+
+---
+
+### Challenge 8 — Provision Script: NLB Hostname Not Available at Script End
+
+**Symptom:** The provision script printed `<still provisioning>` for the app URL every run, because `sleep 15` was not enough time for AWS to provision the NLB.
+
+**Root cause:** AWS Network Load Balancers take 1–3 minutes to provision after the NGINX Ingress Service is created. A static 15-second sleep is never sufficient.
+
+**Fix:** Replaced `sleep 15` with a poll loop that retries every 10 seconds for up to 3 minutes:
+```bash
+for i in $(seq 1 18); do
+  LB_HOST=$(kubectl get svc -n ingress-nginx ... -o jsonpath='{...hostname}')
+  [ -n "$LB_HOST" ] && break
+  sleep 10
+done
+```
+
+**Files changed:** `scripts/provision_configure.sh`
+
+---
+
+### Challenge 9 — Destroy Script: Helm Uninstall Hanging Indefinitely
+
+**Symptom:** `./scripts/destroy_all.sh` hung at `helm uninstall kube-prometheus-stack --wait` and never progressed to `terraform destroy`.
+
+**Root cause:** `kube-prometheus-stack` installs admission webhooks. If the webhook pods are partially degraded at destroy time, `helm uninstall --wait` waits for webhook cleanup that never completes. With no timeout, the script blocks forever.
+
+**Fix:**
+- Added `--no-hooks` to the kube-prometheus-stack uninstall (skips webhook teardown entirely).
+- Added explicit `--timeout` to all `helm uninstall --wait` calls.
+- Added `--timeout` to `kubectl delete pvc` and `kubectl delete namespace` commands for the same reason.
+
+**Files changed:** `scripts/destroy_all.sh`
+
+---
+
+### Summary of All Fixes
+
+| # | What broke | Root cause | Fix | Files |
+|---|---|---|---|---|
+| 1 | MongoDB PVC `Pending` | No StorageClass for EBS CSI driver | Create `gp2-csi` StorageClass in provision script | `provision_configure.sh`, `mongodb-statefulset.yaml`, `values.yaml` |
+| 2 | MongoDB `CrashLoopBackOff` | Liveness `initialDelaySeconds: 30` — too short for WiredTiger init | Raised to 90s, memory limit to 512Mi | `mongodb-statefulset.yaml`, `values.yaml` |
+| 3 | Probe still timing out | `mongosh` (Node.js) too slow to spawn under 88% CPU | Switched to `tcpSocket` probe — zero cost | `mongodb-statefulset.yaml` |
+| 4 | Loki `Pending` | Single t3.medium node at 17-pod hard limit | Scaled `desired_size` to 2 | `terraform/eks.tf` |
+| 5 | App 404 from NGINX | Ingress `host` filter — ELB hostname didn't match | Made `host` optional (catch-all when empty) | `ingress.yaml`, `values.yaml` |
+| 6 | EBS CSI addon timeout | Node-role auth instead of IRSA | Implemented IRSA with OIDC provider | `irsa.tf`, `eks.tf`, `iam_eks.tf` |
+| 7 | NGINX install failed | `ServiceMonitor` CRD missing (kube-prometheus-stack not yet installed) | Install kube-prometheus-stack first, then NGINX | `provision_configure.sh` |
+| 8 | No app URL at script end | `sleep 15` too short for NLB provisioning (takes 1–3 min) | Replaced with 3-minute poll loop | `provision_configure.sh` |
+| 9 | Destroy script hung | `helm uninstall --wait` blocked by admission webhooks | Added `--no-hooks` and `--timeout` to all uninstalls | `destroy_all.sh` |
 
 ---
 
