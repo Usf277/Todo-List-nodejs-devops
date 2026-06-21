@@ -19,6 +19,19 @@ resource "aws_eks_cluster" "main" {
   }
 }
 
+# EBS CSI driver — required in EKS 1.23+ for PersistentVolumeClaim provisioning.
+# Without it, any pod that requests EBS-backed storage (MongoDB, Prometheus, Loki,
+# Grafana) stays in Pending forever and Helm --wait times out.
+resource "aws_eks_addon" "ebs_csi" {
+  cluster_name = aws_eks_cluster.main.name
+  addon_name   = "aws-ebs-csi-driver"
+
+  depends_on = [
+    aws_eks_node_group.main,
+    aws_iam_role_policy_attachment.eks_ebs_csi_policy,
+  ]
+}
+
 resource "aws_eks_node_group" "main" {
   cluster_name    = aws_eks_cluster.main.name
   node_group_name = "todo-list-nodes"

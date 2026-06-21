@@ -43,3 +43,10 @@ resource "aws_iam_role_policy_attachment" "eks_ecr_read" {
   role       = aws_iam_role.eks_node.name
   policy_arn = "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
 }
+
+# EBS CSI driver needs permission to call EC2 APIs to create/attach/delete EBS volumes.
+# Without this the driver pods fail and no PVC ever gets provisioned.
+resource "aws_iam_role_policy_attachment" "eks_ebs_csi_policy" {
+  role       = aws_iam_role.eks_node.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicy"
+}
