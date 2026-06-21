@@ -75,15 +75,29 @@ helm upgrade --install nginx-ingress ingress-nginx/ingress-nginx \
   --wait --timeout 5m
 echo "✅ NGINX Ingress Controller installed"
 
-# Step 5: Deploy the Todo App + MongoDB
+# Step 5: Build and push the Docker image to ECR
+# The app Deployment pulls from ECR. If no image exists yet (first provision,
+# before CI has run), pods get ImagePullBackOff and the Helm --wait times out.
+echo "Step 5: Building and pushing Docker image to ECR..."
+aws ecr get-login-password --region us-east-1 | \
+  docker login --username AWS --password-stdin "$ECR_URL"
+
+docker build -f "$ROOT_DIR/docker/Dockerfile" \
+  -t "$ECR_URL:latest" \
+  "$ROOT_DIR"
+
+docker push "$ECR_URL:latest"
+echo "✅ Image pushed to ECR"
+
+# Step 6: Deploy the Todo App + MongoDB
 # metrics.enabled=true creates a ServiceMonitor — safe because the CRD exists from Step 3.
-echo "Step 5: Deploying Todo App via Helm..."
+echo "Step 6: Deploying Todo App via Helm..."
 helm upgrade --install todo-app "$ROOT_DIR/helm/todo-app" \
   --namespace default \
   --wait --timeout 5m
 echo "✅ Todo App deployed"
 
-# Step 6: Install Loki + Promtail
+# Step 7: Install Loki + Promtail
 echo "Step 6: Installing Loki + Promtail (log aggregation)..."
 helm upgrade --install loki grafana/loki-stack \
   --namespace monitoring \
