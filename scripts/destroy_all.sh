@@ -43,23 +43,28 @@ if aws eks update-kubeconfig --region "$REGION" --name "$CLUSTER_NAME" 2>/dev/nu
 
   echo "==> [2/5] Uninstalling Helm releases..."
 
-  # Monitoring stack first (Prometheus PVCs are expensive; release them early)
-  helm uninstall kube-prometheus-stack -n "$MONITORING_NAMESPACE" --wait 2>/dev/null \
+  # kube-prometheus-stack has admission webhooks that can hang uninstall.
+  # --no-hooks skips them; --timeout is a backstop in case removal still hangs.
+  helm uninstall kube-prometheus-stack -n "$MONITORING_NAMESPACE" \
+    --no-hooks --wait --timeout 5m 2>/dev/null \
     || echo "      kube-prometheus-stack not found — skipping"
-  helm uninstall loki -n "$MONITORING_NAMESPACE" --wait 2>/dev/null \
+  helm uninstall loki -n "$MONITORING_NAMESPACE" \
+    --wait --timeout 3m 2>/dev/null \
     || echo "      loki not found — skipping"
 
-  # App and ingress
-  helm uninstall "$RELEASE_NAME" -n "$NAMESPACE" --wait 2>/dev/null \
+  # App and ingress (NGINX must go before VPC to allow LB deprovisioning)
+  helm uninstall "$RELEASE_NAME" -n "$NAMESPACE" \
+    --wait --timeout 3m 2>/dev/null \
     || echo "      $RELEASE_NAME not found — skipping"
-  helm uninstall "$INGRESS_RELEASE" -n "$INGRESS_NAMESPACE" --wait 2>/dev/null \
+  helm uninstall "$INGRESS_RELEASE" -n "$INGRESS_NAMESPACE" \
+    --wait --timeout 5m 2>/dev/null \
     || echo "      $INGRESS_RELEASE not found — skipping"
 
   echo "==> [3/5] Deleting PVCs to release EBS volumes..."
-  kubectl delete pvc --all -n "$NAMESPACE" --wait=true 2>/dev/null || true
-  kubectl delete pvc --all -n "$MONITORING_NAMESPACE" --wait=true 2>/dev/null || true
-  kubectl delete namespace "$INGRESS_NAMESPACE" --wait=true 2>/dev/null || true
-  kubectl delete namespace "$MONITORING_NAMESPACE" --wait=true 2>/dev/null || true
+  kubectl delete pvc --all -n "$NAMESPACE" --wait=true --timeout=2m 2>/dev/null || true
+  kubectl delete pvc --all -n "$MONITORING_NAMESPACE" --wait=true --timeout=2m 2>/dev/null || true
+  kubectl delete namespace "$INGRESS_NAMESPACE" --wait=true --timeout=3m 2>/dev/null || true
+  kubectl delete namespace "$MONITORING_NAMESPACE" --wait=true --timeout=3m 2>/dev/null || true
 
   echo "      Waiting 60s for AWS Load Balancers to be fully deprovisioned..."
   echo "      (Terraform destroy fails if the LB's ENIs still hold the VPC.)"

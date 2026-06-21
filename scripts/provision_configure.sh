@@ -137,12 +137,19 @@ helm upgrade --install loki grafana/loki-stack \
   --wait --timeout 5m
 echo "✅ Loki + Promtail installed"
 
-# Get the public hostname of the app ingress load balancer
+# Get the public hostname of the app ingress load balancer.
+# AWS NLBs take 1-3 minutes to provision after the Service is created.
 echo ""
-echo "Getting external URL (may take 2-3 minutes for the AWS NLB to provision)..."
-sleep 15
-LB_HOST=$(kubectl get svc -n ingress-nginx nginx-ingress-ingress-nginx-controller \
-  -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo "<still provisioning>")
+echo "Waiting for AWS NLB to provision (up to 3 minutes)..."
+LB_HOST=""
+for i in $(seq 1 18); do
+  LB_HOST=$(kubectl get svc -n ingress-nginx nginx-ingress-ingress-nginx-controller \
+    -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)
+  [ -n "$LB_HOST" ] && break
+  echo "   ... waiting (${i}/18)"
+  sleep 10
+done
+[ -z "$LB_HOST" ] && LB_HOST="<still provisioning — run: kubectl get svc -n ingress-nginx>"
 
 echo "------------------------------------------------------------------"
 echo "🎉 Deployment Complete!"
