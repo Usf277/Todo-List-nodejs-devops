@@ -44,9 +44,6 @@ resource "aws_iam_role_policy_attachment" "eks_ecr_read" {
   policy_arn = "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
 }
 
-# EBS CSI driver needs permission to call EC2 APIs to create/attach/delete EBS volumes.
-# Without this the driver pods fail and no PVC ever gets provisioned.
-resource "aws_iam_role_policy_attachment" "eks_ebs_csi_policy" {
-  role       = aws_iam_role.eks_node.name
-  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicy"
-}
+# EBS CSI driver IAM permissions are now in irsa.tf via a dedicated role.
+# The node role does not need AmazonEBSCSIDriverPolicy — IRSA gives the
+# CSI controller pod its own scoped credentials via STS, not the node role.
