@@ -47,6 +47,29 @@ resource "aws_eks_node_group" "main" {
   }
 }
 
+# Capture the IAM identity running terraform apply — needed for provisioner access entry
+data "aws_caller_identity" "provisioner" {}
+
+# Grant cluster-admin to whoever ran terraform apply (the provisioner/operator)
+# In API_AND_CONFIG_MAP mode the cluster creator is NOT auto-granted kubectl access
+resource "aws_eks_access_entry" "provisioner" {
+  cluster_name  = aws_eks_cluster.main.name
+  principal_arn = data.aws_caller_identity.provisioner.arn
+  type          = "STANDARD"
+}
+
+resource "aws_eks_access_policy_association" "provisioner_admin" {
+  cluster_name  = aws_eks_cluster.main.name
+  principal_arn = data.aws_caller_identity.provisioner.arn
+  policy_arn    = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
+
+  access_scope {
+    type = "cluster"
+  }
+
+  depends_on = [aws_eks_access_entry.provisioner]
+}
+
 # Grant the CI/CD IAM user cluster-admin access via the modern EKS API auth mode
 resource "aws_eks_access_entry" "cicd" {
   cluster_name  = aws_eks_cluster.main.name
