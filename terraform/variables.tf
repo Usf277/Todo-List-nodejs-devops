@@ -7,5 +7,9 @@ variable "cluster_name" {
 }
 
 variable "node_instance_type" {
-  default = "t3.small"
+  # t3.medium (2 vCPU / 4GB) is the minimum practical size when running
+  # the full monitoring stack (Prometheus ~400Mi + Grafana ~128Mi + Loki ~128Mi
+  # + Alertmanager + node-exporter + kube-state-metrics) alongside the app
+  # and MongoDB. t3.small (2GB) runs out of memory and causes Helm timeouts.
+  default = "t3.medium"
 }

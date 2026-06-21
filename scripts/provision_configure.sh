@@ -52,8 +52,11 @@ helm repo update
 helm upgrade --install kube-prometheus-stack prometheus-community/kube-prometheus-stack \
   --namespace monitoring \
   --create-namespace \
-  --values "$ROOT_DIR/helm/monitoring/values-prometheus-stack.yaml" \
-  --wait --timeout 10m
+  --values "$ROOT_DIR/helm/monitoring/values-prometheus-stack.yaml"
+
+echo "   Waiting for Prometheus Operator and CRDs to be ready..."
+kubectl rollout status deployment/kube-prometheus-stack-operator \
+  -n monitoring --timeout=5m
 echo "✅ kube-prometheus-stack installed (ServiceMonitor CRD now available)"
 
 # Step 4: Install NGINX Ingress Controller
