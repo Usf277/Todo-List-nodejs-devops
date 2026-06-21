@@ -34,7 +34,7 @@ mongodb:
 ingress:
   enabled: true
   className: nginx
-  host: todo.example.com
+  host: ""
   annotations:
     nginx.ingress.kubernetes.io/proxy-body-size: "0"
 
