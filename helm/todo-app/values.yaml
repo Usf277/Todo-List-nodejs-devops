@@ -22,13 +22,14 @@ mongodb:
     tag: "7.0"
   port: 27017
   storage: 1Gi
+  storageClassName: gp2-csi
   resources:
     requests:
       cpu: 100m
-      memory: 128Mi
-    limits:
-      cpu: 300m
       memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
 
 ingress:
   enabled: true

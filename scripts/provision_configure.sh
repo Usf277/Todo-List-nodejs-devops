@@ -89,16 +89,48 @@ docker build -f "$ROOT_DIR/docker/Dockerfile" \
 docker push "$ECR_URL:latest"
 echo "✅ Image pushed to ECR"
 
-# Step 6: Deploy the Todo App + MongoDB
+# Step 6: Create EBS CSI StorageClass
+# EKS 1.23+ drops the in-tree aws-ebs provisioner. The EBS CSI addon (IRSA-backed)
+# is installed by Terraform, but the cluster ships with no default StorageClass that
+# uses it. Without this, MongoDB's volumeClaimTemplate stays Pending indefinitely.
+echo "Step 6: Creating gp2-csi StorageClass for EBS CSI driver..."
+kubectl apply -f - <<'EOF'
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: gp2-csi
+  annotations:
+    storageclass.kubernetes.io/is-default-class: "true"
+provisioner: ebs.csi.aws.com
+volumeBindingMode: WaitForFirstConsumer
+parameters:
+  type: gp2
+  fsType: ext4
+reclaimPolicy: Delete
+allowVolumeExpansion: true
+EOF
+echo "✅ gp2-csi StorageClass created (default)"
+
+# Step 7: Deploy the Todo App + MongoDB
 # metrics.enabled=true creates a ServiceMonitor — safe because the CRD exists from Step 3.
-echo "Step 6: Deploying Todo App via Helm..."
+echo "Step 7: Deploying Todo App via Helm..."
 helm upgrade --install todo-app "$ROOT_DIR/helm/todo-app" \
-  --namespace default \
-  --wait --timeout 5m
+  --namespace default
+
+# Wait for MongoDB first — it needs an EBS volume provisioned (WaitForFirstConsumer).
+# Provisioning takes 30-90 seconds; rollout status polls until Ready or timeout.
+echo "   Waiting for MongoDB (EBS volume provision + startup)..."
+kubectl rollout status statefulset/todo-app-mongodb \
+  -n default --timeout=5m
+
+echo "   Waiting for app deployment..."
+kubectl rollout status deployment/todo-app \
+  -n default --timeout=3m
+
 echo "✅ Todo App deployed"
 
-# Step 7: Install Loki + Promtail
-echo "Step 6: Installing Loki + Promtail (log aggregation)..."
+# Step 8: Install Loki + Promtail
+echo "Step 8: Installing Loki + Promtail (log aggregation)..."
 helm upgrade --install loki grafana/loki-stack \
   --namespace monitoring \
   --values "$ROOT_DIR/helm/monitoring/values-loki.yaml" \
